@@ -1,0 +1,18 @@
+﻿{% extends 'base.html' %}
+
+{% block title %}Главная - PetCostTracker{% endblock %}
+
+{% block content %}
+<h1>Добро пожаловать в PetCostTracker!</h1>
+<p>Система учета расходов на домашних животных.</p>
+
+{% if user.is_authenticated %}
+    <div class="mt-4">
+        <a href="{% url 'pets:pet_list' %}" class="btn btn-primary">Мои питомцы</a>
+        <a href="{% url 'pets:expense_list' %}" class="btn btn-success">Мои расходы</a>
+    </div>
+{% else %}
+    <p>Пожалуйста, войдите в систему.</p>
+    <a href="/admin/" class="btn btn-primary">Войти</a>
+{% endif %}
+{% endblock %}

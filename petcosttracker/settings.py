@@ -55,10 +55,13 @@ ROOT_URLCONF = 'petcosttracker.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [
+            BASE_DIR / 'templates',  # ← Убедитесь, что эта строка есть
+        ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
+                'django.template.context_processors.debug',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
@@ -116,3 +119,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+import os
+print("BASE_DIR:", BASE_DIR)
+print("Templates path:", BASE_DIR / 'templates')
+print("Templates exists:", os.path.exists(BASE_DIR / 'templates'))
