@@ -1,0 +1,424 @@
+{% extends 'base.html' %}
+
+{% block title %}Аналитика - PetCostTracker{% endblock %}
+
+{% block extra_css %}
+<style>
+.chart-container {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+.stat-card {
+    transition: transform 0.3s;
+    height: 100%;
+}
+.stat-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+}
+.progress {
+    height: 20px;
+    border-radius: 10px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="mb-4"><i class="bi bi-graph-up"></i> Аналитика расходов</h1>
+    
+    {% if no_data %}
+        <div class="alert alert-info">
+            <h4>Нет данных для анализа</h4>
+            <p>Добавьте расходы, чтобы увидеть статистику и графики.</p>
+            <div class="mt-3">
+                <a href="{% url 'pets:expense_add' %}" class="btn btn-primary">
+                    <i class="bi bi-plus-circle"></i> Добавить расход
+                </a>
+                <a href="{% url 'pets:pet_add' %}" class="btn btn-outline-primary">
+                    <i class="bi bi-plus-circle"></i> Сначала добавьте питомца
+                </a>
+            </div>
+        </div>
+    {% else %}
+        <!-- Карточки с общей статистикой -->
+        <div class="row mb-4">
+            <div class="col-md-3 mb-3">
+                <div class="card stat-card bg-primary text-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title"><i class="bi bi-cash-stack"></i> Общая сумма</h5>
+                        <h2>{{ total_stats.total|floatformat:2 }} ₽</h2>
+                        <p class="mb-0">{{ total_stats.count }} записей</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card stat-card bg-success text-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title"><i class="bi bi-calculator"></i> Средний расход</h5>
+                        <h2>{{ total_stats.avg|floatformat:2 }} ₽</h2>
+                        <p class="mb-0">на одну запись</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card stat-card bg-info text-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title"><i class="bi bi-calendar-month"></i> Текущий месяц</h5>
+                        <h2>{{ current_month_expenses|floatformat:2 }} ₽</h2>
+                        <p class="mb-0 {% if change_percent > 0 %}text-warning{% else %}text-success{% endif %}">
+                            {% if change_percent > 0 %}<i class="bi bi-arrow-up"></i>{% else %}<i class="bi bi-arrow-down"></i>{% endif %}
+                            {{ change_percent|floatformat:1 }}%
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card stat-card bg-warning text-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title"><i class="bi bi-trophy"></i> Максимальный</h5>
+                        <h2>{{ total_stats.max|floatformat:2 }} ₽</h2>
+                        <p class="mb-0">самая большая трата</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Визуализация по категориям -->
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="chart-container">
+                    <h4><i class="bi bi-pie-chart"></i> Распределение расходов по категориям</h4>
+                    
+                    {% if by_category %}
+                    <div class="simple-chart mt-4">
+                        <h6>Расходы по категориям:</h6>
+                        {% for cat in by_category %}
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>
+                                    <span class="badge category-badge" data-color="{{ cat.category__color|default:'#007bff' }}">&nbsp;&nbsp;&nbsp;</span>
+                                    {{ cat.category__name }}
+                                </span>
+                                <span><strong>{{ cat.total|floatformat:2 }} ₽</strong> ({{ cat.count }} записей)</span>
+                            </div>
+                            <div class="progress">
+                                <div class="progress-bar" 
+                                     data-color="{{ cat.category__color|default:'#007bff' }}"
+                                     data-percentage="{% widthratio cat.total total_stats.total 100 %}"
+                                     role="progressbar">
+                                    {% widthratio cat.total total_stats.total 100 %}%
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="chart-container h-100">
+                    <h4><i class="bi bi-star"></i> Топ категорий</h4>
+                    <div class="list-group">
+                        {% for cat in by_category|slice:":5" %}
+                        <div class="list-group-item">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">
+                                    <span class="badge category-badge" data-color="{{ cat.category__color|default:'#007bff' }}">&nbsp;&nbsp;&nbsp;</span>
+                                    {{ cat.category__name }}
+                                </h6>
+                                <strong>{{ cat.total|floatformat:2 }} ₽</strong>
+                            </div>
+                            <p class="mb-1">
+                                <small>{{ cat.count }} записей | Среднее: {{ cat.avg|floatformat:2 }} ₽</small>
+                            </p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    
+                    {% if by_category|length > 5 %}
+                    <div class="mt-3">
+                        <button class="btn btn-outline-primary btn-sm w-100" 
+                                type="button" 
+                                data-bs-toggle="collapse" 
+                                data-bs-target="#allCategories">
+                            Показать все категории ({{ by_category|length }})
+                        </button>
+                        <div class="collapse mt-2" id="allCategories">
+                            <div class="list-group">
+                                {% for cat in by_category|slice:"5:" %}
+                                <div class="list-group-item list-group-item-light">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <small>{{ cat.category__name }}</small>
+                                        <small>{{ cat.total|floatformat:2 }} ₽</small>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Детальная статистика -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h4><i class="bi bi-heart"></i> Расходы по питомцам</h4>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Питомец</th>
+                                    <th>Записей</th>
+                                    <th class="text-end">Сумма</th>
+                                    <th class="text-end">Доля</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for pet in by_pet %}
+                                <tr>
+                                    <td>
+                                        {% if pet.pet__name %}
+                                            {{ pet.pet__name }}
+                                        {% else %}
+                                            <span class="text-muted">Без имени</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ pet.count }}</td>
+                                    <td class="text-end">{{ pet.total|floatformat:2 }} ₽</td>
+                                    <td class="text-end">
+                                        {% widthratio pet.total total_stats.total 100 as percentage %}
+                                        {{ percentage|floatformat:1 }}%
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h4><i class="bi bi-calendar"></i> Динамика по месяцам</h4>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Месяц</th>
+                                    <th>Записей</th>
+                                    <th class="text-end">Сумма</th>
+                                    <th>Тренд</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for month in monthly_stats|slice:":6" %}
+                                <tr>
+                                    <td>{{ month.month }}</td>
+                                    <td>{{ month.count }}</td>
+                                    <td class="text-end">{{ month.total|floatformat:2 }} ₽</td>
+                                    <td>
+                                        {% if forloop.counter0 > 0 %}
+                                            {% with prev=monthly_stats|slice:forloop.counter0|first %}
+                                            {% if month.total > prev.total %}
+                                                <span class="text-success"><i class="bi bi-arrow-up"></i></span>
+                                            {% elif month.total < prev.total %}
+                                                <span class="text-danger"><i class="bi bi-arrow-down"></i></span>
+                                            {% else %}
+                                                <span class="text-muted"><i class="bi bi-dash"></i></span>
+                                            {% endif %}
+                                            {% endwith %}
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% if monthly_stats|length > 6 %}
+                    <div class="mt-2 text-center">
+                        <a href="#monthlyDetails" class="btn btn-sm btn-outline-info" data-bs-toggle="collapse">
+                            Показать больше месяцев (всего {{ monthly_stats|length }})
+                        </a>
+                        <div class="collapse mt-2" id="monthlyDetails">
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <tbody>
+                                        {% for month in monthly_stats|slice:"6:" %}
+                                        <tr>
+                                            <td>{{ month.month }}</td>
+                                            <td>{{ month.count }}</td>
+                                            <td class="text-end">{{ month.total|floatformat:2 }} ₽</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Советы по экономии -->
+        <div class="chart-container">
+            <h4><i class="bi bi-lightbulb"></i> Советы для экономии</h4>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card border-info mb-3">
+                        <div class="card-header bg-info text-white">
+                            <h6 class="mb-0"><i class="bi bi-cash"></i> Самые затратные категории</h6>
+                        </div>
+                        <div class="card-body">
+                            <ul class="mb-0">
+                                {% for cat in by_category|slice:":3" %}
+                                <li>
+                                    <strong>{{ cat.category__name }}:</strong> 
+                                    {{ cat.total|floatformat:2 }} ₽
+                                    <small class="text-muted">({{ cat.count }} записей)</small>
+                                </li>
+                                {% endfor %}
+                            </ul>
+                            <p class="mt-2 mb-0"><small>Попробуйте оптимизировать расходы в этих категориях.</small></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card border-success mb-3">
+                        <div class="card-header bg-success text-white">
+                            <h6 class="mb-0"><i class="bi bi-calendar-check"></i> Рекомендации</h6>
+                        </div>
+                        <div class="card-body">
+                            <ul class="mb-0">
+                                <li>Устанавливайте бюджет на каждый месяц</li>
+                                <li>Планируйте крупные расходы заранее</li>
+                                <li>Сравнивайте цены в разных магазинах</li>
+                                <li>Покупайте корм и лекарства оптом</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Кнопки действий -->
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <a href="{% url 'pets:expense_list' %}" class="btn btn-outline-primary me-2">
+                            <i class="bi bi-list"></i> К списку расходов
+                        </a>
+                        <a href="{% url 'pets:pet_list' %}" class="btn btn-outline-success me-2">
+                            <i class="bi bi-heart"></i> К списку питомцев
+                        </a>
+                        <a href="{% url 'pets:home' %}" class="btn btn-outline-secondary">
+                            <i class="bi bi-house"></i> На главную
+                        </a>
+                    </div>
+                    <div class="btn-group" role="group">
+                        <a href="{% url 'pets:expense_list' %}" class="btn btn-outline-primary">
+                            <i class="bi bi-list"></i> К списку расходов
+                        </a>
+                        <button type="button" class="btn btn-outline-secondary disabled" 
+                                title="Экспорт в разработке">
+                            <i class="bi bi-download"></i> Экспорт (скоро)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Информация о будущих улучшениях -->
+        <div class="alert alert-light mt-4">
+            <h6><i class="bi bi-magic"></i> Планы по улучшению аналитики:</h6>
+            <ul class="mb-0">
+                <li>Интерактивные графики с Chart.js</li>
+                <li>Прогнозирование будущих расходов</li>
+                <li>Сравнение с предыдущими периодами</li>
+                <li>Настройка целей по экономии</li>
+            </ul>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Автоматическое раскрытие текущего месяца
+    const currentMonth = '{{ current_month }}';
+    const monthCells = document.querySelectorAll('td:first-child');
+    
+    monthCells.forEach(cell => {
+        if (cell.textContent.trim() === currentMonth) {
+            cell.closest('tr').classList.add('table-info');
+        }
+    });
+    
+    // Подсветка максимального значения в таблицах
+    const tables = document.querySelectorAll('.table');
+    tables.forEach(table => {
+        const rows = table.querySelectorAll('tbody tr');
+        let maxValue = 0;
+        let maxRow = null;
+        
+        rows.forEach(row => {
+            const amountCell = row.querySelector('td:nth-child(3)');
+            if (amountCell) {
+                const amountText = amountCell.textContent.replace(/[^\d.-]/g, '');
+                if (amountText) {
+                    const amount = parseFloat(amountText);
+                    if (amount > maxValue) {
+                        maxValue = amount;
+                        maxRow = row;
+                    }
+                }
+            }
+        });
+        
+        if (maxRow) {
+            maxRow.classList.add('table-warning');
+        }
+    });
+    
+    // Установка цвета для бейджей категорий
+    const categoryBadges = document.querySelectorAll('.category-badge');
+    categoryBadges.forEach(badge => {
+        const color = badge.getAttribute('data-color');
+        if (color) {
+            badge.style.backgroundColor = color;
+        }
+    });
+    
+    // Анимация прогресс-баров
+    const progressBars = document.querySelectorAll('.progress-bar');
+    progressBars.forEach(bar => {
+        const color = bar.getAttribute('data-color');
+        const percentage = bar.getAttribute('data-percentage');
+        
+        if (color) {
+            bar.style.backgroundColor = color;
+        }
+        
+        if (percentage) {
+            bar.style.width = '0%';
+            setTimeout(() => {
+                bar.style.width = percentage + '%';
+                bar.style.transition = 'width 1.5s ease-in-out';
+            }, 100);
+        }
+    });
+});
+</script>
+{% endblock %}

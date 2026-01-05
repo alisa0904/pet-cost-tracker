@@ -1,0 +1,358 @@
+{% extends 'base.html' %}
+{% load pet_filters %}
+
+{% block title %}Мои питомцы - PetCostTracker{% endblock %}
+
+{% block extra_css %}
+<style>
+.pet-card {
+    transition: all 0.3s;
+    height: 100%;
+}
+.pet-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+}
+.species-icon {
+    font-size: 2rem;
+    margin-bottom: 10px;
+}
+.pet-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 15px;
+    color: white;
+    font-size: 2.5rem;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-heart text-danger"></i> Мои питомцы</h1>
+        <div>
+            <a href="{% url 'pets:home' %}" class="btn btn-outline-secondary me-2">
+                <i class="bi bi-arrow-left"></i> На главную
+            </a>
+            <a href="{% url 'pets:pet_add' %}" class="btn btn-success">
+                <i class="bi bi-plus-circle"></i> Добавить питомца
+            </a>
+        </div>
+    </div>
+    
+    {% if page_obj %}
+        <!-- Статистика -->
+        <div class="row mb-4">
+            <div class="col-md-3 mb-3">
+                <div class="card bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title text-muted">Всего питомцев</h6>
+                        <h2 class="text-primary">{{ total_pets }}</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title text-muted">Общие расходы</h6>
+                        <h2 class="text-success">{{ total_all_expenses|floatformat:2 }} ₽</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title text-muted">Среднее на питомца</h6>
+                        <h2 class="text-info">
+                            {% if total_pets > 0 %}
+                                {{ total_all_expenses|divide:total_pets|floatformat:2 }} ₽
+                            {% else %}
+                                0 ₽
+                            {% endif %}
+                        </h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title text-muted">Активных питомцев</h6>
+                        <h2 class="text-warning">
+                            {% with active_pets=page_obj|length %}{{ active_pets }}{% endwith %}
+                        </h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Поиск и сортировка -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <form method="get" class="row g-3">
+                    <div class="col-md-8">
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-search"></i></span>
+                            <input type="text" name="search" class="form-control" 
+                                   placeholder="Поиск по имени, породе или виду..." 
+                                   value="{{ search_query|default:'' }}">
+                            <button class="btn btn-primary" type="submit">
+                                Найти
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="btn-group w-100" role="group">
+                            <a href="?sort=name{% if search_query %}&search={{ search_query }}{% endif %}" 
+                               class="btn btn-outline-secondary {% if sort_by == 'name' %}active{% endif %}">
+                                <i class="bi bi-sort-alpha-down"></i> Имя
+                            </a>
+                            <a href="?sort=expenses{% if search_query %}&search={{ search_query }}{% endif %}" 
+                               class="btn btn-outline-secondary {% if sort_by == 'expenses' %}active{% endif %}">
+                                <i class="bi bi-cash-stack"></i> Расходы
+                            </a>
+                            <a href="?sort=age{% if search_query %}&search={{ search_query }}{% endif %}" 
+                               class="btn btn-outline-secondary {% if sort_by == 'age' %}active{% endif %}">
+                                <i class="bi bi-calendar"></i> Возраст
+                            </a>
+                        </div>
+                    </div>
+                </form>
+                
+                {% if search_query %}
+                <div class="mt-3">
+                    <small class="text-muted">
+                        Найдено {{ page_obj.paginator.count }} питомцев по запросу: "{{ search_query }}"
+                        <a href="{% url 'pets:pet_list' %}" class="ms-2">Сбросить поиск</a>
+                    </small>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Список питомцев -->
+        <div class="row">
+            {% for pet in page_obj %}
+            <div class="col-md-4 mb-4">
+                <div class="card pet-card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">{{ pet.name }}</h5>
+                        <span class="badge bg-{% if pet.species == 'dog' %}primary{% elif pet.species == 'cat' %}info{% elif pet.species == 'bird' %}warning{% elif pet.species == 'fish' %}info{% else %}secondary{% endif %}">
+                            {{ pet.get_species_display }}
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-center mb-3">
+                            <div class="pet-avatar">
+                                {% if pet.species == 'dog' %}
+                                    <i class="bi bi-emoji-heart-eyes"></i>
+                                {% elif pet.species == 'cat' %}
+                                    <i class="bi bi-emoji-smile-upside-down"></i>
+                                {% elif pet.species == 'bird' %}
+                                    <i class="bi bi-emoji-sunglasses"></i>
+                                {% elif pet.species == 'fish' %}
+                                    <i class="bi bi-droplet"></i>
+                                {% elif pet.species == 'rodent' %}
+                                    <i class="bi bi-emoji-neutral"></i>
+                                {% else %}
+                                    <i class="bi bi-heart"></i>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <p class="mb-1"><strong>Порода:</strong> {{ pet.breed|default:"Не указана" }}</p>
+                            
+                            {% if pet.birth_date %}
+                                <p class="mb-1"><strong>Дата рождения:</strong> {{ pet.birth_date|date:"d.m.Y" }}</p>
+                                <p class="mb-1"><strong>Возраст:</strong> {{ pet.birth_date|timesince }}</p>
+                            {% endif %}
+                            
+                            <p class="mb-1"><strong>Добавлен:</strong> {{ pet.created_at|date:"d.m.Y" }}</p>
+                        </div>
+                        
+                        <hr>
+                        
+                        <h6 class="mb-3"><i class="bi bi-graph-up"></i> Статистика расходов:</h6>
+                        <div class="row text-center">
+                            <div class="col-4">
+                                <div class="border rounded p-2 bg-light">
+                                    <small class="text-muted">Всего</small>
+                                    <div class="fw-bold text-success">{{ pet.total_expenses|default:0|floatformat:2 }} ₽</div>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="border rounded p-2 bg-light">
+                                    <small class="text-muted">Записей</small>
+                                    <div class="fw-bold text-primary">{{ pet.expense_count|default:0 }}</div>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="border rounded p-2 bg-light">
+                                    <small class="text-muted">Среднее</small>
+                                    <div class="fw-bold text-info">
+                                        {% if pet.expense_count > 0 %}
+                                            {{ pet.total_expenses|default:0|divide:pet.expense_count|floatformat:2 }} ₽
+                                            0 ₽
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <div class="d-grid gap-2">
+                            <a href="{% url 'pets:pet_detail' pet.id %}" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-eye"></i> Подробнее
+                            </a>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <a href="/admin/pets/pet/{{ pet.id }}/change/" class="btn btn-outline-warning" target="_blank" title="Редактировать">
+                                    <i class="bi bi-pencil"></i> Изменить
+                                </a>
+                                <a href="{% url 'pets:expense_add' %}?pet={{ pet.id }}" class="btn btn-outline-success" title="Добавить расход">
+                                    <i class="bi bi-plus-circle"></i> Расход
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        
+        <!-- Пагинация -->
+        {% if page_obj.paginator.num_pages > 1 %}
+        <nav aria-label="Page navigation" class="mt-4">
+            <ul class="pagination justify-content-center">
+                {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?page=1{% if sort_by %}&sort={{ sort_by }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}">
+                        &laquo; Первая
+                    </a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if sort_by %}&sort={{ sort_by }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}">
+                        Назад
+                    </a>
+                </li>
+                {% endif %}
+                
+                <li class="page-item disabled">
+                    <span class="page-link">
+                        Страница {{ page_obj.number }} из {{ page_obj.paginator.num_pages }}
+                    </span>
+                </li>
+                
+                {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if sort_by %}&sort={{ sort_by }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}">
+                        Вперед
+                    </a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% if sort_by %}&sort={{ sort_by }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}">
+                        Последняя &raquo;
+                    </a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+        
+        <!-- Подсказка по сортировке -->
+        <div class="alert alert-info mt-4">
+            <h6><i class="bi bi-info-circle"></i> Как пользоваться списком:</h6>
+            <ul class="mb-0">
+                <li>Используйте поиск для быстрого нахождения питомцев</li>
+                <li>Сортируйте по расходам, чтобы увидеть самых затратных питомцев</li>
+                <li>Нажмите "Подробнее" для детальной статистики по питомцу</li>
+                <li>Добавляйте расходы прямо из карточки питомца</li>
+            </ul>
+        </div>
+        
+    {% else %}
+        <!-- Нет питомцев -->
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card text-center">
+                    <div class="card-body py-5">
+                        <div class="mb-4">
+                            <i class="bi bi-heart text-muted" style="font-size: 4rem;"></i>
+                        </div>
+                        <h4 class="card-title">Пока нет питомцев</h4>
+                        <p class="card-text text-muted mb-4">
+                            Добавьте своего первого питомца, чтобы начать вести учёт расходов.
+                        </p>
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-center">
+                            <a href="{% url 'pets:pet_add' %}" class="btn btn-primary btn-lg">
+                                <i class="bi bi-plus-circle"></i> Добавить первого питомца
+                            </a>
+                            <a href="{% url 'pets:home' %}" class="btn btn-outline-secondary">
+                                <i class="bi bi-arrow-left"></i> На главную
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card mt-4">
+                    <div class="card-body">
+                        <h6><i class="bi bi-lightbulb"></i> Советы для начала:</h6>
+                        <ul>
+                            <li>Добавьте всех ваших питомцев (кошек, собак, птиц и т.д.)</li>
+                            <li>Укажите точную дату рождения для расчета возраста</li>
+                            <li>После добавления питомцев вы сможете добавлять расходы</li>
+                            <li>Используйте категории расходов для удобного анализа</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Подсветка карточки при наведении
+    const petCards = document.querySelectorAll('.pet-card');
+    petCards.forEach(card => {
+        card.addEventListener('mouseenter', function() {
+            this.style.cursor = 'pointer';
+        });
+    });
+    
+    // Клик по карточке ведет на страницу питомца
+    petCards.forEach(card => {
+        const link = card.querySelector('a[href*="pet_detail"]');
+        if (link) {
+            card.addEventListener('click', function(e) {
+                // Проверяем, что клик не по кнопке внутри карточки
+                if (!e.target.closest('.btn') && !e.target.closest('a')) {
+                    link.click();
+                }
+            });
+        }
+    });
+    
+    // Анимация появления статистики
+    const statCards = document.querySelectorAll('.card.bg-light');
+    statCards.forEach((card, index) => {
+        setTimeout(() => {
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(20px)';
+            card.style.transition = 'opacity 0.5s, transform 0.5s';
+            setTimeout(() => {
+                card.style.opacity = '1';
+                card.style.transform = 'translateY(0)';
+            }, 10);
+        }, index * 100);
+    });
+});
+</script>
+{% endblock %}
