@@ -1,16 +1,30 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.db.models import Sum, Count, Avg, Q
+from django.db.models import Sum, Count, Avg, Q, Min, Max
 from django.utils import timezone
 from datetime import timedelta, datetime
 from django.core.paginator import Paginator
 from django.http import HttpResponse
 import json
+from django.views.generic import UpdateView, DeleteView
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.urls import reverse_lazy
+import io
+import base64
 
 from .models import Pet, Expense, ExpenseCategory
 from .forms import PetForm, ExpenseForm
-from django.db.models import Min, Max
+
+# Для графиков Matplotlib
+try:
+    import matplotlib
+    matplotlib.use('Agg')  # Для работы без GUI
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+    plt = None
 
 @login_required
 def home(request):
@@ -249,7 +263,10 @@ def expense_add(request):
 
 @login_required
 def analytics(request):
-    """Страница аналитики с графиками"""
+    """
+    Страница аналитики с переключением между таблицами и графиками
+    Использует параметр GET: view=charts для показа графиков
+    """
     pets = Pet.objects.filter(owner=request.user)
     expenses = Expense.objects.filter(pet__owner=request.user)
     
@@ -259,79 +276,232 @@ def analytics(request):
             'no_data': True
         })
     
-    # Общая статистика
-    total_stats = expenses.aggregate(
-        total=Sum('amount'),
-        avg=Avg('amount'),
-        count=Count('id'),
-        min=Min('amount'),
-        max=Max('amount')
-    )
+    # Определяем режим отображения
+    view_mode = request.GET.get('view', 'table')
+    period = request.GET.get('period', 'month')
     
-    # Статистика по категориям
-    by_category = expenses.values(
-        'category__name', 'category__color'
-    ).annotate(
-        total=Sum('amount'),
-        count=Count('id'),
-        avg=Avg('amount')
-    ).order_by('-total')
+    # Если запрошены графики
+    if view_mode == 'charts':
+        if not MATPLOTLIB_AVAILABLE:
+            return render(request, 'pets/analytics.html', {
+                'pets': pets,
+                'no_data': False,
+                'view_mode': 'charts',
+                'matplotlib_error': True,
+                'period': period
+            })
+        
+        # Определяем даты для фильтрации
+        today = timezone.now().date()
+        if period == 'week':
+            start_date = today - timedelta(days=7)
+        elif period == 'month':
+            start_date = today - timedelta(days=30)
+        elif period == 'year':
+            start_date = today - timedelta(days=365)
+        else:
+            start_date = today - timedelta(days=30)  # По умолчанию месяц
+        
+        # Фильтруем расходы
+        filtered_expenses = expenses.filter(date__gte=start_date)
+        
+        # Если нет данных за период, показываем всё с предупреждением
+        show_warning = False
+        if not filtered_expenses.exists():
+            filtered_expenses = expenses
+            show_warning = True
+            period = 'all'
+        
+        # СТАТИСТИКА для графиков
+        stats = {
+            'total_expenses': filtered_expenses.aggregate(Sum('amount'))['amount__sum'] or 0,
+            'average_expense': filtered_expenses.aggregate(Avg('amount'))['amount__avg'] or 0,
+            'expense_count': filtered_expenses.count(),
+        }
+        
+        # ГРАФИК 1: Расходы по категориям
+        chart1 = None
+        try:
+            category_data = filtered_expenses.values('category__name').annotate(
+                total=Sum('amount')
+            ).order_by('-total')
+            
+            if category_data:
+                categories = [item['category__name'] or 'Без категории' for item in category_data]
+                amounts = [float(item['total']) for item in category_data]
+                
+                plt.figure(figsize=(10, 6))
+                colors = ['#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7']
+                plt.bar(categories[:8], amounts[:8], color=colors[:len(categories)])
+                plt.title(f'Расходы по категориям ({period})', fontsize=14, fontweight='bold')
+                plt.xlabel('Категория', fontsize=12)
+                plt.ylabel('Сумма (руб)', fontsize=12)
+                plt.xticks(rotation=45, ha='right')
+                plt.grid(axis='y', alpha=0.3)
+                plt.tight_layout()
+                
+                buf1 = io.BytesIO()
+                plt.savefig(buf1, format='png', dpi=100, bbox_inches='tight')
+                buf1.seek(0)
+                chart1 = base64.b64encode(buf1.getvalue()).decode('utf-8')
+                buf1.close()
+                plt.clf()
+        except Exception as e:
+            print(f"Ошибка при построении графика 1: {e}")
+            chart1 = None
+        
+        # ГРАФИК 2: Динамика расходов по времени
+        chart2 = None
+        try:
+            # Группируем по дням/неделям в зависимости от периода
+            if period in ['week', 'month']:
+                # По дням
+                date_format = "%Y-%m-%d"
+                date_data = filtered_expenses.extra(
+                    select={'day': "date"}
+                ).values('day').annotate(
+                    total=Sum('amount')
+                ).order_by('day')
+                
+                if date_data:
+                    dates = [item['day'].strftime('%d.%m') for item in date_data]
+                    amounts = [float(item['total']) for item in date_data]
+                    
+                    plt.figure(figsize=(12, 5))
+                    plt.plot(dates, amounts, marker='o', linewidth=2, color='#4e79a7')
+                    plt.fill_between(dates, amounts, alpha=0.2, color='#4e79a7')
+                    plt.title(f'Динамика расходов ({period})', fontsize=14, fontweight='bold')
+                    plt.xlabel('Дата', fontsize=12)
+                    plt.ylabel('Сумма (руб)', fontsize=12)
+                    plt.grid(True, alpha=0.3)
+                    plt.xticks(rotation=45)
+                    plt.tight_layout()
+                    
+                    buf2 = io.BytesIO()
+                    plt.savefig(buf2, format='png', dpi=100, bbox_inches='tight')
+                    buf2.seek(0)
+                    chart2 = base64.b64encode(buf2.getvalue()).decode('utf-8')
+                    buf2.close()
+                    plt.clf()
+        except Exception as e:
+            print(f"Ошибка при построении графика 2: {e}")
+            chart2 = None
+        
+        # ГРАФИК 3: Распределение по питомцам
+        chart3 = None
+        try:
+            pet_data = filtered_expenses.values('pet__name').annotate(
+                total=Sum('amount')
+            ).order_by('-total')
+            
+            if len(pet_data) > 1:  # Круговую диаграмму строим только если есть несколько питомцев
+                pet_names = [item['pet__name'] or 'Без имени' for item in pet_data]
+                pet_amounts = [float(item['total']) for item in pet_data]
+                
+                plt.figure(figsize=(8, 8))
+                colors = ['#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', '#edc949']
+                plt.pie(pet_amounts, labels=pet_names, colors=colors[:len(pet_names)], 
+                        autopct='%1.1f%%', startangle=90)
+                plt.title(f'Распределение по питомцам ({period})', fontsize=14, fontweight='bold')
+                plt.axis('equal')
+                plt.tight_layout()
+                
+                buf3 = io.BytesIO()
+                plt.savefig(buf3, format='png', dpi=100, bbox_inches='tight')
+                buf3.seek(0)
+                chart3 = base64.b64encode(buf3.getvalue()).decode('utf-8')
+                buf3.close()
+                plt.clf()
+        except Exception as e:
+            print(f"Ошибка при построении графика 3: {e}")
+            chart3 = None
+        
+        context = {
+            'pets': pets,
+            'view_mode': view_mode,
+            'period': period,
+            'start_date': start_date,
+            'end_date': today,
+            'stats': stats,
+            'chart1': chart1,
+            'chart2': chart2,
+            'chart3': chart3,
+            'no_data': False,
+            'show_warning': show_warning,
+            'filtered_data_count': filtered_expenses.count(),
+            'all_data_count': expenses.count(),
+        }
     
-    # По питомцам
-    by_pet = expenses.values(
-        'pet__name'
-    ).annotate(
-        total=Sum('amount'),
-        count=Count('id')
-    ).order_by('-total')
-    
-    # По месяцам
-    monthly_stats = expenses.extra(
-        select={'month': "strftime('%%Y-%%m', date)"}
-    ).values('month').annotate(
-        total=Sum('amount'),
-        count=Count('id')
-    ).order_by('month')
-    
-    # Подготовка данных для графика
-    chart_data = {
-        'labels': [item['category__name'] for item in by_category],
-        'data': [float(item['total']) for item in by_category],
-        'colors': [item['category__color'] for item in by_category],
-    }
-    
-    # Статистика за текущий месяц
-    current_month = datetime.now().strftime('%Y-%m')
-    current_month_expenses = expenses.extra(
-        where=[f"strftime('%%Y-%%m', date) = '{current_month}'"]
-    ).aggregate(total=Sum('amount'))['total'] or 0
-    
-    # Сравнение с предыдущим месяцем
-    prev_month = (datetime.now().replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
-    prev_month_expenses = expenses.extra(
-        where=[f"strftime('%%Y-%%m', date) = '{prev_month}'"]
-    ).aggregate(total=Sum('amount'))['total'] or 0
-    
-    # Изменение в процентах
-    if prev_month_expenses > 0:
-        change_percent = ((current_month_expenses - prev_month_expenses) / prev_month_expenses) * 100
+    # РЕЖИМ ТАБЛИЦ (по умолчанию)
     else:
-        change_percent = 100 if current_month_expenses > 0 else 0
+        # Общая статистика
+        total_stats = expenses.aggregate(
+            total=Sum('amount'),
+            avg=Avg('amount'),
+            count=Count('id'),
+            min=Min('amount'),
+            max=Max('amount')
+        )
+        
+        # Статистика по категориям
+        by_category = expenses.values(
+            'category__name', 'category__color'
+        ).annotate(
+            total=Sum('amount'),
+            count=Count('id'),
+            avg=Avg('amount')
+        ).order_by('-total')
+        
+        # По питомцам
+        by_pet = expenses.values(
+            'pet__name'
+        ).annotate(
+            total=Sum('amount'),
+            count=Count('id')
+        ).order_by('-total')
+        
+        # По месяцам
+        monthly_stats = expenses.extra(
+            select={'month': "strftime('%%Y-%%m', date)"}
+        ).values('month').annotate(
+            total=Sum('amount'),
+            count=Count('id')
+        ).order_by('month')
+        
+        # Статистика за текущий месяц
+        current_month = datetime.now().strftime('%Y-%m')
+        current_month_expenses = expenses.extra(
+            where=[f"strftime('%%Y-%%m', date) = '{current_month}'"]
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        # Сравнение с предыдущим месяцем
+        prev_month = (datetime.now().replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
+        prev_month_expenses = expenses.extra(
+            where=[f"strftime('%%Y-%%m', date) = '{prev_month}'"]
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        # Изменение в процентах
+        if prev_month_expenses > 0:
+            change_percent = ((current_month_expenses - prev_month_expenses) / prev_month_expenses) * 100
+        else:
+            change_percent = 100 if current_month_expenses > 0 else 0
+        
+        context = {
+            'pets': pets,
+            'view_mode': view_mode,
+            'total_stats': total_stats,
+            'by_category': by_category,
+            'by_pet': by_pet,
+            'monthly_stats': monthly_stats,
+            'current_month_expenses': current_month_expenses,
+            'prev_month_expenses': prev_month_expenses,
+            'change_percent': change_percent,
+            'expense_count': expenses.count(),
+            'pet_count': pets.count(),
+            'current_month': current_month,
+            'no_data': False,
+        }
     
-    context = {
-        'pets': pets,
-        'total_stats': total_stats,
-        'by_category': by_category,
-        'by_pet': by_pet,
-        'monthly_stats': monthly_stats,
-        'chart_data': json.dumps(chart_data),
-        'current_month_expenses': current_month_expenses,
-        'prev_month_expenses': prev_month_expenses,
-        'change_percent': change_percent,
-        'expense_count': expenses.count(),
-        'pet_count': pets.count(),
-        'current_month': current_month,
-    }
     return render(request, 'pets/analytics.html', context)
 
 @login_required
@@ -361,3 +531,105 @@ def export_expenses_csv(request):
     
     return response
 
+class PetUpdateView(LoginRequiredMixin, UpdateView):
+    """Редактирование питомца"""
+    model = Pet
+    form_class = PetForm
+    template_name = 'pets/pet_form.html'
+    
+    def get_queryset(self):
+        return Pet.objects.filter(owner=self.request.user)
+    
+    def get_success_url(self):
+        messages.success(self.request, f'Питомец "{self.object.name}" успешно обновлен!')
+        return reverse_lazy('pets:pet_detail', kwargs={'pk': self.object.pk})
+
+class ExpenseUpdateView(LoginRequiredMixin, UpdateView):
+    """Редактирование расхода"""
+    model = Expense
+    template_name = 'pets/expense_form.html'
+    
+    def get_form_class(self):
+        # Возвращаем форму с текущим пользователем
+        class ExpenseUpdateForm(ExpenseForm):
+            def __init__(self, *args, **kwargs):
+                kwargs['user'] = self.request.user
+                super().__init__(*args, **kwargs)
+        
+        return ExpenseUpdateForm
+    
+    def get_queryset(self):
+        return Expense.objects.filter(pet__owner=self.request.user)
+    
+    def get_success_url(self):
+        messages.success(self.request, f'Расход успешно обновлен!')
+        return reverse_lazy('pets:expense_detail', kwargs={'pk': self.object.pk})
+
+class PetDeleteView(LoginRequiredMixin, DeleteView):
+    """Удаление питомца"""
+    model = Pet
+    template_name = 'pets/pet_confirm_delete.html'
+    success_url = reverse_lazy('pets:pet_list')
+    
+    def get_queryset(self):
+        return Pet.objects.filter(owner=self.request.user)
+    
+    def delete(self, request, *args, **kwargs):
+        pet = self.get_object()
+        messages.success(request, f'Питомец "{pet.name}" успешно удален!')
+        return super().delete(request, *args, **kwargs)
+
+class ExpenseDeleteView(LoginRequiredMixin, DeleteView):
+    """Удаление расхода"""
+    model = Expense
+    template_name = 'pets/expense_confirm_delete.html'
+    success_url = reverse_lazy('pets:expense_list')
+    
+    def get_queryset(self):
+        return Expense.objects.filter(pet__owner=self.request.user)
+    
+    def delete(self, request, *args, **kwargs):
+        expense = self.get_object()
+        messages.success(request, f'Расход на сумму {expense.amount}₽ успешно удален!')
+        return super().delete(request, *args, **kwargs)
+
+@login_required
+def global_search(request):
+    """Глобальный поиск по всем данным"""
+    query = request.GET.get('q', '').strip()
+    
+    if not query:
+        return redirect('pets:home')
+    
+    # Поиск по питомцам
+    pets = Pet.objects.filter(
+        owner=request.user
+    ).filter(
+        Q(name__icontains=query) |
+        Q(breed__icontains=query) |
+        Q(species__icontains=query) |
+        Q(notes__icontains=query)
+    )[:10]
+    
+    # Поиск по расходам
+    expenses = Expense.objects.filter(
+        pet__owner=request.user
+    ).filter(
+        Q(description__icontains=query) |
+        Q(category__name__icontains=query) |
+        Q(notes__icontains=query)
+    ).select_related('pet', 'category')[:10]
+    
+    # Статистика поиска
+    total_results = pets.count() + expenses.count()
+    
+    context = {
+        'query': query,
+        'pets': pets,
+        'expenses': expenses,
+        'total_results': total_results,
+        'pet_count': pets.count(),
+        'expense_count': expenses.count(),
+    }
+    
+    return render(request, 'pets/search_results.html', context)

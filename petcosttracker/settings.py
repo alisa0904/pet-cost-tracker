@@ -123,3 +123,9 @@ import os
 print("BASE_DIR:", BASE_DIR)
 print("Templates path:", BASE_DIR / 'templates')
 print("Templates exists:", os.path.exists(BASE_DIR / 'templates'))
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'pets:home'
+LOGOUT_REDIRECT_URL = 'pets:home'
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+]
