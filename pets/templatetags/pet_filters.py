@@ -11,3 +11,4 @@ def divide(value, arg):
     except (ValueError, ZeroDivisionError, TypeError):
         pass
     return 0
+

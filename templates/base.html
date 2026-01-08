@@ -7,37 +7,186 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     {% block extra_css %}{% endblock %}
+    <style>
+        .navbar-brand {
+            font-weight: 600;
+        }
+        .dropdown-menu {
+            min-width: 200px;
+        }
+        .search-form {
+            max-width: 300px;
+        }
+        @media (max-width: 768px) {
+            .search-form {
+                margin-top: 10px;
+                max-width: 100%;
+            }
+        }
+    </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
         <div class="container">
             <a class="navbar-brand" href="{% url 'pets:home' %}">
-                <i class="bi bi-heart-fill"></i> PetCostTracker
+                <i class="bi bi-heart-fill text-danger"></i> PetCostTracker
             </a>
-            <div class="collapse navbar-collapse">
-                <ul class="navbar-nav">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="{% url 'pets:home' %}">Главная</a>
+                        <a class="nav-link" href="{% url 'pets:home' %}">
+                            <i class="bi bi-house-door"></i> Главная
+                        </a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'pets:pet_list' %}">Питомцы</a>
+                    
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="petsDropdown" role="button" 
+                           data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-heart"></i> Питомцы
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="petsDropdown">
+                            <li><a class="dropdown-item" href="{% url 'pets:pet_list' %}">
+                                <i class="bi bi-list-ul"></i> Все питомцы
+                            </a></li>
+                            <li><a class="dropdown-item" href="{% url 'pets:pet_add' %}">
+                                <i class="bi bi-plus-circle"></i> Добавить питомца
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{% url 'pets:global_search' %}?q=">
+                                <i class="bi bi-search"></i> Поиск питомцев
+                            </a></li>
+                        </ul>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'pets:expense_list' %}">Расходы</a>
+                    
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="expensesDropdown" role="button" 
+                           data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-cash-stack"></i> Расходы
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="expensesDropdown">
+                            <li><a class="dropdown-item" href="{% url 'pets:expense_list' %}">
+                                <i class="bi bi-list-ul"></i> Все расходы
+                            </a></li>
+                            <li><a class="dropdown-item" href="{% url 'pets:expense_add' %}">
+                                <i class="bi bi-plus-circle"></i> Добавить расход
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{% url 'pets:export_csv' %}">
+                                <i class="bi bi-download"></i> Экспорт в CSV
+                            </a></li>
+                        </ul>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'pets:analytics' %}">Аналитика</a>
+                    
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="analyticsDropdown" role="button" 
+                           data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-graph-up"></i> Аналитика
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="analyticsDropdown">
+                            <li><a class="dropdown-item" href="{% url 'pets:analytics' %}">
+                                <i class="bi bi-table"></i> Табличная аналитика
+                            </a></li>
+                            <li><a class="dropdown-item" href="{% url 'pets:analytics' %}">
+                                <i class="bi bi-bar-chart"></i> Графики
+                            </a></li>
+                        </ul>
+                    </li>
+                </ul>
+                
+                <!-- Форма поиска -->
+                <form class="d-flex search-form" action="{% url 'pets:global_search' %}" method="get">
+                    <div class="input-group">
+                        <input type="text" class="form-control" name="q" 
+                               placeholder="Поиск по питомцам и расходам..." 
+                               value="{{ request.GET.q|default:'' }}">
+                        <button class="btn btn-outline-light" type="submit">
+                            <i class="bi bi-search"></i>
+                        </button>
+                    </div>
+                </form>
+                
+                <!-- Уведомления и пользователь (заглушка) -->
+                <ul class="navbar-nav ms-3">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" 
+                           data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-person-circle"></i> Аккаунт
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                            <li><a class="dropdown-item" href="#">
+                                <i class="bi bi-person"></i> Профиль
+                            </a></li>
+                            <li><a class="dropdown-item" href="#">
+                                <i class="bi bi-gear"></i> Настройки
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item text-danger" href="#">
+                                <i class="bi bi-box-arrow-right"></i> Выйти
+                            </a></li>
+                        </ul>
                     </li>
                 </ul>
             </div>
         </div>
     </nav>
 
-    <div class="container mt-4">
-        {% block content %}{% endblock %}
+    <!-- Сообщения (success, error, warning) -->
+    <div class="container mt-3">
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
     </div>
 
+    <main class="container mt-4 mb-5">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Футер -->
+    <footer class="footer mt-auto py-3 bg-light border-top">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-6">
+                    <span class="text-muted">
+                        <i class="bi bi-heart text-danger"></i> PetCostTracker © 2023
+                    </span>
+                </div>
+                <div class="col-md-6 text-end">
+                    <span class="text-muted">
+                        Отслеживайте расходы на ваших питомцев с умом
+                    </span>
+                </div>
+            </div>
+        </div>
+    </footer>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Автоматическое скрытие сообщений через 5 секунд
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                var alerts = document.querySelectorAll('.alert');
+                alerts.forEach(function(alert) {
+                    var bsAlert = new bootstrap.Alert(alert);
+                    bsAlert.close();
+                });
+            }, 5000);
+        });
+        
+        // Инициализация всплывающих подсказок
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    </script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>
