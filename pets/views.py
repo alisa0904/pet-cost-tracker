@@ -20,7 +20,7 @@ from django.db.models.functions import TruncMonth, TruncDate, ExtractMonth, Extr
 from .models import Pet, Expense, ExpenseCategory
 from .forms import PetForm, ExpenseForm
 
-# Для графиков Matplotlib
+# ==================== ИНИЦИАЛИЗАЦИЯ ГРАФИКОВ ====================
 try:
     import matplotlib
     matplotlib.use('Agg')  # Для работы без GUI
@@ -34,16 +34,13 @@ except ImportError:
 
 def login_view(request):
     """Обработчик входа в систему"""
-    # Если пользователь уже авторизован, перенаправляем на главную
     if request.user.is_authenticated:
         return redirect('pets:home')
     
     if request.method == 'POST':
-        # Используем стандартную форму Django
         form = AuthenticationForm(request, data=request.POST)
         
         if form.is_valid():
-            # Аутентифицируем пользователя
             username = form.cleaned_data.get('username')
             password = form.cleaned_data.get('password')
             user = authenticate(username=username, password=password)
@@ -51,11 +48,9 @@ def login_view(request):
             if user is not None:
                 login(request, user)
                 messages.success(request, f'Добро пожаловать, {username}!')
-                # Перенаправляем на главную или на следующую страницу
                 next_page = request.GET.get('next', 'pets:home')
                 return redirect(next_page)
         else:
-            # Если форма не валидна, показываем ошибку
             messages.error(request, 'Неправильное имя пользователя или пароль')
     else:
         form = AuthenticationForm()
@@ -96,27 +91,23 @@ def register_view(request):
     return render(request, 'registration/register.html')
 
 def emergency_login(request):
-    """Экстренный вход для тестирования (создает пользователя если нет)"""
+    """Экстренный вход для тестирования"""
     if request.method == 'POST':
         username = request.POST.get('username')
         password = request.POST.get('password')
         
-        # Простая проверка для теста
         if username == 'admin' and password == 'admin123':
             try:
                 user = User.objects.get(username='admin')
-                # Обновляем пароль на всякий случай
                 user.set_password('admin123')
                 user.save()
             except User.DoesNotExist:
-                # Создаем суперпользователя
                 user = User.objects.create_superuser(
                     username='admin',
                     email='admin@example.com',
                     password='admin123'
                 )
             
-            # Логиним
             login(request, user)
             messages.success(request, 'Экстренный вход выполнен!')
             return redirect('pets:home')
@@ -126,7 +117,7 @@ def emergency_login(request):
     return render(request, 'registration/login.html')
 
 def create_default_data():
-    """Создание тестовых данных: пользователей, питомцев и категорий"""
+    """Создание тестовых данных"""
     try:
         # Создаем администратора
         if not User.objects.filter(username='admin').exists():
@@ -148,24 +139,18 @@ def create_default_data():
         
         # Создаем категории, если их нет
         if not ExpenseCategory.objects.exists():
-            default_categories = [
-                {'name': 'Корм', 'color': '#FF6384', 'description': 'Еда и лакомства'},
-                {'name': 'Ветеринар', 'color': '#36A2EB', 'description': 'Ветеринарные услуги'},
-                {'name': 'Игрушки', 'color': '#FFCE56', 'description': 'Игрушки и развлечения'},
-                {'name': 'Аксессуары', 'color': '#4BC0C0', 'description': 'Ошейники, поводки, миски'},
-                {'name': 'Груминг', 'color': '#9966FF', 'description': 'Стрижка, мытье, уход'},
-                {'name': 'Страхование', 'color': '#FF9F40', 'description': 'Медицинское страхование'},
-                {'name': 'Лекарства', 'color': '#8AC926', 'description': 'Лекарства и витамины'},
-                {'name': 'Транспорт', 'color': '#1982C4', 'description': 'Перевозка питомца'},
-                {'name': 'Обучение', 'color': '#6A4C93', 'description': 'Дрессировка и курсы'},
-                {'name': 'Другое', 'color': '#C9CBCF', 'description': 'Прочие расходы'},
+            categories = [
+                {'name': 'Корм', 'color': '#FF6384'},
+                {'name': 'Ветеринар', 'color': '#36A2EB'},
+                {'name': 'Игрушки', 'color': '#FFCE56'},
+                {'name': 'Аксессуары', 'color': '#4BC0C0'},
+                {'name': 'Груминг', 'color': '#9966FF'},
+                {'name': 'Страхование', 'color': '#FF9F40'},
+                {'name': 'Лекарства', 'color': '#8AC926'},
+                {'name': 'Другое', 'color': '#C9CBCF'},
             ]
-            for cat in default_categories:
-                ExpenseCategory.objects.create(
-                    name=cat['name'], 
-                    color=cat['color'],
-                    description=cat['description']
-                )
+            for cat in categories:
+                ExpenseCategory.objects.create(name=cat['name'], color=cat['color'])
             print("✅ Созданы категории расходов по умолчанию")
         else:
             print(f"ℹ️  В базе уже есть {ExpenseCategory.objects.count()} категорий")
@@ -177,19 +162,16 @@ def create_default_data():
 try:
     create_default_data()
 except:
-    pass  # Игнорируем ошибки при миграциях
+    pass
 
 # ==================== ОСНОВНЫЕ VIEW ====================
 
 def home(request):
     """Главная страница с общей статистикой"""
-    # Обрабатываем аутентифицированных и анонимных пользователей
     if request.user.is_authenticated:
-        # Для залогиненных пользователей показываем их данные
         pets = Pet.objects.filter(owner=request.user)
         expenses = Expense.objects.filter(pet__owner=request.user)
     else:
-        # Для анонимных пользователей показываем ВСЕ данные (временно)
         pets = Pet.objects.all()
         expenses = Expense.objects.all()
     
@@ -247,7 +229,6 @@ def home(request):
 @login_required
 def pet_list(request):
     """Список всех питомцев пользователя с суммарными расходами"""
-    # Если пользователь залогинен, показываем его питомцев
     if request.user.is_authenticated:
         pets = Pet.objects.filter(owner=request.user)
     else:
@@ -277,7 +258,7 @@ def pet_list(request):
         )
     
     # Пагинация
-    paginator = Paginator(pets, 9)  # 9 питомцев на странице
+    paginator = Paginator(pets, 9)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
     
@@ -295,7 +276,6 @@ def pet_detail(request, pk):
     """Детальная страница питомца со всеми расходами"""
     pet = get_object_or_404(Pet, pk=pk)
     
-    # Если пользователь залогинен, проверяем владельца
     if request.user.is_authenticated and pet.owner != request.user:
         messages.error(request, 'У вас нет доступа к этому питомцу')
         return redirect('pets:pet_list')
@@ -321,7 +301,7 @@ def pet_detail(request, pk):
     
     # Форматируем для шаблона
     monthly_expenses_formatted = []
-    for item in monthly_expenses[:12]:  # Последние 12 месяцев
+    for item in monthly_expenses[:12]:
         monthly_expenses_formatted.append({
             'month': item['month'].strftime('%Y-%m'),
             'total': item['total'],
@@ -365,7 +345,6 @@ def pet_add(request):
 @login_required
 def expense_list(request):
     """Список всех расходов с фильтрацией"""
-    # Если пользователь залогинен, показываем его расходы
     if request.user.is_authenticated:
         expenses = Expense.objects.filter(pet__owner=request.user)
     else:
@@ -400,11 +379,11 @@ def expense_list(request):
     expenses = expenses.order_by(sort_by)
     
     # Пагинация
-    paginator = Paginator(expenses, 15)  # 15 расходов на странице
+    paginator = Paginator(expenses, 15)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
     
-    # Статистика фильтрованных данных
+    # Статистика
     total_amount = expenses.aggregate(total=Sum('amount'))['total'] or 0
     avg_amount = expenses.aggregate(avg=Avg('amount'))['avg'] or 0
     
@@ -428,24 +407,20 @@ def expense_list(request):
 @login_required
 def expense_add(request):
     """Добавление нового расхода"""
-    # Проверяем и создаем категории, если их нет
+    # Создаем категории если их нет
     if ExpenseCategory.objects.count() == 0:
-        default_categories = [
-            {'name': 'Корм', 'color': '#FF6384', 'description': 'Еда и лакомства'},
-            {'name': 'Ветеринар', 'color': '#36A2EB', 'description': 'Ветеринарные услуги'},
-            {'name': 'Игрушки', 'color': '#FFCE56', 'description': 'Игрушки и развлечения'},
-            {'name': 'Аксессуары', 'color': '#4BC0C0', 'description': 'Ошейники, поводки, миски'},
-            {'name': 'Груминг', 'color': '#9966FF', 'description': 'Стрижка, мытье, уход'},
-            {'name': 'Страхование', 'color': '#FF9F40', 'description': 'Медицинское страхование'},
-            {'name': 'Лекарства', 'color': '#8AC926', 'description': 'Лекарства и витамины'},
-            {'name': 'Другое', 'color': '#C9CBCF', 'description': 'Прочие расходы'},
+        categories = [
+            {'name': 'Корм', 'color': '#FF6384'},
+            {'name': 'Ветеринар', 'color': '#36A2EB'},
+            {'name': 'Игрушки', 'color': '#FFCE56'},
+            {'name': 'Аксессуары', 'color': '#4BC0C0'},
+            {'name': 'Груминг', 'color': '#9966FF'},
+            {'name': 'Страхование', 'color': '#FF9F40'},
+            {'name': 'Лекарства', 'color': '#8AC926'},
+            {'name': 'Другое', 'color': '#C9CBCF'},
         ]
-        for cat in default_categories:
-            ExpenseCategory.objects.create(
-                name=cat['name'], 
-                color=cat['color'],
-                description=cat['description']
-            )
+        for cat in categories:
+            ExpenseCategory.objects.create(name=cat['name'], color=cat['color'])
         messages.info(request, 'Созданы категории расходов по умолчанию')
     
     if request.method == 'POST':
@@ -458,12 +433,11 @@ def expense_add(request):
     else:
         form = ExpenseForm(user=request.user)
         
-        # Если передан параметр pet в GET, установим его по умолчанию
+        # Если передан параметр pet в GET
         pet_id = request.GET.get('pet')
         if pet_id:
             try:
                 pet = Pet.objects.get(id=pet_id)
-                # Проверяем владельца, если пользователь залогинен
                 if request.user.is_authenticated and pet.owner != request.user:
                     messages.error(request, 'Вы не можете добавлять расходы для этого питомца')
                 else:
@@ -482,7 +456,7 @@ def analytics(request):
     """
     Страница аналитики с переключением между таблицами и графиками
     """
-    # Если пользователь залогинен, показываем его данные
+    # Получаем данные
     if request.user.is_authenticated:
         pets = Pet.objects.filter(owner=request.user)
         expenses = Expense.objects.filter(pet__owner=request.user)
@@ -500,7 +474,7 @@ def analytics(request):
     view_mode = request.GET.get('view', 'table')
     period = request.GET.get('period', 'month')
     
-    # Если запрошены графики
+    # ==================== РЕЖИМ ГРАФИКОВ ====================
     if view_mode == 'charts':
         if not MATPLOTLIB_AVAILABLE:
             return render(request, 'pets/analytics.html', {
@@ -520,116 +494,147 @@ def analytics(request):
         elif period == 'year':
             start_date = today - timedelta(days=365)
         else:
-            start_date = today - timedelta(days=30)  # По умолчанию месяц
+            start_date = today - timedelta(days=30)
         
         # Фильтруем расходы
         filtered_expenses = expenses.filter(date__gte=start_date)
         
-        # Если нет данных за период, показываем всё с предупреждением
-        show_warning = False
+        # Если нет данных за период, показываем всё
         if not filtered_expenses.exists():
             filtered_expenses = expenses
-            show_warning = True
-            period = 'all'
         
-        # СТАТИСТИКА для графиков
+        # Статистика
         stats = {
             'total_expenses': filtered_expenses.aggregate(Sum('amount'))['amount__sum'] or 0,
             'average_expense': filtered_expenses.aggregate(Avg('amount'))['amount__avg'] or 0,
             'expense_count': filtered_expenses.count(),
         }
         
-        # ГРАФИК 1: Расходы по категориям
+        # ГРАФИК 1: Круговая диаграмма по категориям
         chart1 = None
         try:
             category_data = filtered_expenses.values('category__name').annotate(
                 total=Sum('amount')
-            ).order_by('-total')
+            ).order_by('-total')[:6]  # Только топ-6 категорий
             
             if category_data:
-                categories = [item['category__name'] or 'Без категории' for item in category_data]
-                amounts = [float(item['total']) for item in category_data]
+                categories = []
+                amounts = []
                 
-                plt.figure(figsize=(10, 6))
-                colors = ['#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7']
-                plt.bar(categories[:8], amounts[:8], color=colors[:len(categories)])
-                plt.title(f'Расходы по категориям ({period})', fontsize=14, fontweight='bold')
-                plt.xlabel('Категория', fontsize=12)
-                plt.ylabel('Сумма (руб)', fontsize=12)
-                plt.xticks(rotation=45, ha='right')
-                plt.grid(axis='y', alpha=0.3)
-                plt.tight_layout()
+                for item in category_data:
+                    cat_name = item['category__name'] or 'Без категории'
+                    if cat_name:
+                        categories.append(cat_name[:15])  # Ограничиваем длину названия
+                        amounts.append(float(item['total']))
                 
-                buf1 = io.BytesIO()
-                plt.savefig(buf1, format='png', dpi=100, bbox_inches='tight')
-                buf1.seek(0)
-                chart1 = base64.b64encode(buf1.getvalue()).decode('utf-8')
-                buf1.close()
-                plt.clf()
+                if categories and amounts:
+                    plt.figure(figsize=(8, 8))
+                    colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40']
+                    plt.pie(amounts, labels=categories, colors=colors[:len(categories)], 
+                            autopct='%1.1f%%', startangle=90)
+                    plt.title('Расходы по категориям', fontsize=14)
+                    plt.axis('equal')
+                    
+                    buf1 = io.BytesIO()
+                    plt.savefig(buf1, format='png', dpi=80, bbox_inches='tight')
+                    buf1.seek(0)
+                    chart1 = base64.b64encode(buf1.getvalue()).decode('utf-8')
+                    buf1.close()
+                    plt.close()
         except Exception as e:
             print(f"Ошибка при построении графика 1: {e}")
             chart1 = None
         
-        # ГРАФИК 2: Динамика расходов по времени
+        # ГРАФИК 2: Линейный график по времени
         chart2 = None
         try:
-            # Группируем по дням
-            if period in ['week', 'month']:
+            # Группируем по дням или месяцам в зависимости от периода
+            if period == 'week':
                 date_data = filtered_expenses.annotate(
                     day=TruncDate('date')
                 ).values('day').annotate(
                     total=Sum('amount')
                 ).order_by('day')
+            else:
+                date_data = filtered_expenses.annotate(
+                    month=TruncMonth('date')
+                ).values('month').annotate(
+                    total=Sum('amount')
+                ).order_by('month')
+            
+            if date_data:
+                dates = []
+                amounts = []
                 
-                if date_data:
-                    dates = [item['day'].strftime('%d.%m') for item in date_data]
-                    amounts = [float(item['total']) for item in date_data]
-                    
-                    plt.figure(figsize=(12, 5))
-                    plt.plot(dates, amounts, marker='o', linewidth=2, color='#4e79a7')
-                    plt.fill_between(dates, amounts, alpha=0.2, color='#4e79a7')
-                    plt.title(f'Динамика расходов ({period})', fontsize=14, fontweight='bold')
-                    plt.xlabel('Дата', fontsize=12)
-                    plt.ylabel('Сумма (руб)', fontsize=12)
+                for item in date_data:
+                    if 'day' in item:
+                        dates.append(item['day'].strftime('%d.%m'))
+                    else:
+                        dates.append(item['month'].strftime('%b %Y'))
+                    amounts.append(float(item['total']))
+                
+                if len(dates) > 1:
+                    plt.figure(figsize=(10, 5))
+                    plt.plot(dates, amounts, marker='o', linewidth=2, color='#36A2EB')
+                    plt.fill_between(dates, amounts, alpha=0.2, color='#36A2EB')
+                    plt.title('Динамика расходов', fontsize=14)
+                    plt.xlabel('Период')
+                    plt.ylabel('Сумма (руб)')
                     plt.grid(True, alpha=0.3)
                     plt.xticks(rotation=45)
                     plt.tight_layout()
                     
                     buf2 = io.BytesIO()
-                    plt.savefig(buf2, format='png', dpi=100, bbox_inches='tight')
+                    plt.savefig(buf2, format='png', dpi=80)
                     buf2.seek(0)
                     chart2 = base64.b64encode(buf2.getvalue()).decode('utf-8')
                     buf2.close()
-                    plt.clf()
+                    plt.close()
         except Exception as e:
             print(f"Ошибка при построении графика 2: {e}")
             chart2 = None
         
-        # ГРАФИК 3: Распределение по питомцам
+        # ГРАФИК 3: Столбчатая диаграмма по питомцам
         chart3 = None
         try:
             pet_data = filtered_expenses.values('pet__name').annotate(
                 total=Sum('amount')
-            ).order_by('-total')
+            ).order_by('-total')[:5]  # Только топ-5 питомцев
             
-            if len(pet_data) > 1:  # Круговую диаграмму строим только если есть несколько питомцев
-                pet_names = [item['pet__name'] or 'Без имени' for item in pet_data]
-                pet_amounts = [float(item['total']) for item in pet_data]
+            if pet_data:
+                pet_names = []
+                pet_amounts = []
                 
-                plt.figure(figsize=(8, 8))
-                colors = ['#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', '#edc949']
-                plt.pie(pet_amounts, labels=pet_names, colors=colors[:len(pet_names)], 
-                        autopct='%1.1f%%', startangle=90)
-                plt.title(f'Распределение по питомцам ({period})', fontsize=14, fontweight='bold')
-                plt.axis('equal')
-                plt.tight_layout()
+                for item in pet_data:
+                    name = item['pet__name'] or 'Без имени'
+                    if name:
+                        pet_names.append(name[:12])
+                        pet_amounts.append(float(item['total']))
                 
-                buf3 = io.BytesIO()
-                plt.savefig(buf3, format='png', dpi=100, bbox_inches='tight')
-                buf3.seek(0)
-                chart3 = base64.b64encode(buf3.getvalue()).decode('utf-8')
-                buf3.close()
-                plt.clf()
+                if pet_names and pet_amounts:
+                    plt.figure(figsize=(10, 6))
+                    colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
+                    bars = plt.bar(pet_names, pet_amounts, color=colors[:len(pet_names)])
+                    plt.title('Расходы по питомцам', fontsize=14)
+                    plt.xlabel('Питомец')
+                    plt.ylabel('Сумма (руб)')
+                    plt.grid(axis='y', alpha=0.3)
+                    
+                    # Добавляем значения на столбцы
+                    for bar in bars:
+                        height = bar.get_height()
+                        plt.text(bar.get_x() + bar.get_width()/2., height,
+                                f'{height:,.0f}₽',
+                                ha='center', va='bottom')
+                    
+                    plt.tight_layout()
+                    
+                    buf3 = io.BytesIO()
+                    plt.savefig(buf3, format='png', dpi=80)
+                    buf3.seek(0)
+                    chart3 = base64.b64encode(buf3.getvalue()).decode('utf-8')
+                    buf3.close()
+                    plt.close()
         except Exception as e:
             print(f"Ошибка при построении графика 3: {e}")
             chart3 = None
@@ -638,19 +643,16 @@ def analytics(request):
             'pets': pets,
             'view_mode': view_mode,
             'period': period,
-            'start_date': start_date,
-            'end_date': today,
             'stats': stats,
             'chart1': chart1,
             'chart2': chart2,
             'chart3': chart3,
-            'no_data': False,
-            'show_warning': show_warning,
+            'no_data': not filtered_expenses.exists(),
             'filtered_data_count': filtered_expenses.count(),
             'all_data_count': expenses.count(),
         }
     
-    # РЕЖИМ ТАБЛИЦ (по умолчанию)
+    # ==================== РЕЖИМ ТАБЛИЦ ====================
     else:
         # Общая статистика
         total_stats = expenses.aggregate(
@@ -678,6 +680,7 @@ def analytics(request):
             count=Count('id')
         ).order_by('-total')
         
+        # По месяцам
         monthly_stats = expenses.annotate(
             month=TruncMonth('date')
         ).values('month').annotate(
@@ -694,6 +697,7 @@ def analytics(request):
                 'count': item['count']
             })
         
+        # Сравнение с предыдущим месяцем
         current_month_start = datetime.now().replace(day=1)
         current_month_expenses = expenses.filter(
             date__gte=current_month_start
@@ -737,7 +741,6 @@ def export_expenses_csv(request):
     
     expenses = Expense.objects.all()
     
-    # Создаем HTTP-ответ с CSV
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="expenses.csv"'
     

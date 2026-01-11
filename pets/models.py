@@ -2,6 +2,9 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
 from decimal import Decimal
+from django.db.models.signals import post_migrate
+from django.db import OperationalError
+from django.dispatch import receiver
 
 class Pet(models.Model):
     PET_TYPES = [
@@ -115,3 +118,37 @@ class Expense(models.Model):
             'EUR': '€'
         }
         return symbols.get(self.currency, self.currency)
+
+@receiver(post_migrate)
+def create_default_categories(sender, **kwargs):
+    """Создает категории по умолчанию после миграций"""
+    if sender.name == 'pets':  # Проверяем, что это наше приложение
+        from django.db import transaction
+        from django.db.utils import ProgrammingError
+        
+        try:
+            with transaction.atomic():
+                # Проверяем, есть ли уже категории
+                if not ExpenseCategory.objects.exists():
+                    categories = [
+                        {'name': 'Корм', 'color': '#FF6384', 'description': 'Еда и лакомства'},
+                        {'name': 'Ветеринар', 'color': '#36A2EB', 'description': 'Ветеринарные услуги'},
+                        {'name': 'Игрушки', 'color': '#FFCE56', 'description': 'Игрушки и развлечения'},
+                        {'name': 'Аксессуары', 'color': '#4BC0C0', 'description': 'Ошейники, поводки, миски'},
+                        {'name': 'Груминг', 'color': '#9966FF', 'description': 'Стрижка, мытье, уход'},
+                        {'name': 'Страхование', 'color': '#FF9F40', 'description': 'Медицинское страхование'},
+                        {'name': 'Лекарства', 'color': '#8AC926', 'description': 'Лекарства и витамины'},
+                        {'name': 'Транспорт', 'color': '#1982C4', 'description': 'Перевозка питомца'},
+                        {'name': 'Обучение', 'color': '#6A4C93', 'description': 'Дрессировка и курсы'},
+                        {'name': 'Другое', 'color': '#C9CBCF', 'description': 'Прочие расходы'},
+                    ]
+                    
+                    for cat_data in categories:
+                        ExpenseCategory.objects.create(**cat_data)
+                    
+                    print("✅ Созданы категории расходов по умолчанию")
+                else:
+                    print(f"ℹ️  В базе уже есть {ExpenseCategory.objects.count()} категорий")
+        except (ProgrammingError, OperationalError):
+            # Таблица еще не создана, пропускаем
+            pass
