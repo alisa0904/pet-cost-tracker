@@ -1,5 +1,8 @@
 from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import AuthenticationForm
+from django.contrib.auth.models import User
 from django.contrib import messages
 from django.db.models import Sum, Count, Avg, Q, Min, Max
 from django.utils import timezone
@@ -12,8 +15,6 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse_lazy
 import io
 import base64
-
-
 from django.db.models.functions import TruncMonth, TruncDate, ExtractMonth, ExtractYear
 
 from .models import Pet, Expense, ExpenseCategory
@@ -28,6 +29,132 @@ try:
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
     plt = None
+
+# ==================== АУТЕНТИФИКАЦИЯ ====================
+
+def login_view(request):
+    """Обработчик входа в систему"""
+    # Если пользователь уже авторизован, перенаправляем на главную
+    if request.user.is_authenticated:
+        return redirect('pets:home')
+    
+    if request.method == 'POST':
+        # Используем стандартную форму Django
+        form = AuthenticationForm(request, data=request.POST)
+        
+        if form.is_valid():
+            # Аутентифицируем пользователя
+            username = form.cleaned_data.get('username')
+            password = form.cleaned_data.get('password')
+            user = authenticate(username=username, password=password)
+            
+            if user is not None:
+                login(request, user)
+                messages.success(request, f'Добро пожаловать, {username}!')
+                # Перенаправляем на главную или на следующую страницу
+                next_page = request.GET.get('next', 'pets:home')
+                return redirect(next_page)
+        else:
+            # Если форма не валидна, показываем ошибку
+            messages.error(request, 'Неправильное имя пользователя или пароль')
+    else:
+        form = AuthenticationForm()
+    
+    return render(request, 'registration/login.html', {'form': form})
+
+def logout_view(request):
+    """Выход из системы"""
+    logout(request)
+    messages.success(request, 'Вы успешно вышли из системы')
+    return redirect('pets:home')
+
+def register_view(request):
+    """Регистрация нового пользователя"""
+    if request.user.is_authenticated:
+        return redirect('pets:home')
+    
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+        password2 = request.POST.get('password2')
+        email = request.POST.get('email', '')
+        
+        if password != password2:
+            messages.error(request, 'Пароли не совпадают')
+        elif User.objects.filter(username=username).exists():
+            messages.error(request, 'Пользователь с таким именем уже существует')
+        else:
+            user = User.objects.create_user(
+                username=username, 
+                password=password, 
+                email=email
+            )
+            login(request, user)
+            messages.success(request, f'Аккаунт {username} успешно создан!')
+            return redirect('pets:home')
+    
+    return render(request, 'registration/register.html')
+
+def emergency_login(request):
+    """Экстренный вход для тестирования (создает пользователя если нет)"""
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+        
+        # Простая проверка для теста
+        if username == 'admin' and password == 'admin123':
+            try:
+                user = User.objects.get(username='admin')
+                # Обновляем пароль на всякий случай
+                user.set_password('admin123')
+                user.save()
+            except User.DoesNotExist:
+                # Создаем суперпользователя
+                user = User.objects.create_superuser(
+                    username='admin',
+                    email='admin@example.com',
+                    password='admin123'
+                )
+            
+            # Логиним
+            login(request, user)
+            messages.success(request, 'Экстренный вход выполнен!')
+            return redirect('pets:home')
+        else:
+            messages.error(request, 'Неправильные тестовые данные')
+    
+    return render(request, 'registration/login.html')
+
+def create_default_users():
+    """Создание пользователей по умолчанию при запуске приложения"""
+    try:
+        # Создаем администратора
+        if not User.objects.filter(username='admin').exists():
+            User.objects.create_superuser(
+                username='admin',
+                email='admin@example.com',
+                password='admin123'
+            )
+            print("✅ Создан администратор: admin / admin123")
+        
+        # Создаем тестового пользователя
+        if not User.objects.filter(username='test').exists():
+            User.objects.create_user(
+                username='test',
+                email='test@example.com',
+                password='test123'
+            )
+            print("✅ Создан тестовый пользователь: test / test123")
+    except Exception as e:
+        print(f"⚠️  Ошибка создания пользователей: {e}")
+
+# Вызываем создание пользователей при импорте
+try:
+    create_default_users()
+except:
+    pass  # Игнорируем ошибки при миграциях
+
+# ==================== ОСНОВНЫЕ VIEW ====================
 
 def home(request):
     """Главная страница с общей статистикой"""
@@ -92,6 +219,7 @@ def home(request):
     }
     return render(request, 'home.html', context)
 
+@login_required
 def pet_list(request):
     """Список всех питомцев пользователя с суммарными расходами"""
     # Если пользователь залогинен, показываем его питомцев
@@ -137,6 +265,7 @@ def pet_list(request):
     }
     return render(request, 'pets/pet_list.html', context)
 
+@login_required
 def pet_detail(request, pk):
     """Детальная страница питомца со всеми расходами"""
     pet = get_object_or_404(Pet, pk=pk)
@@ -188,6 +317,7 @@ def pet_detail(request, pk):
     }
     return render(request, 'pets/pet_detail.html', context)
 
+@login_required
 def pet_add(request):
     """Добавление нового питомца"""
     if request.method == 'POST':
@@ -207,6 +337,7 @@ def pet_add(request):
     }
     return render(request, 'pets/form.html', context)
 
+@login_required
 def expense_list(request):
     """Список всех расходов с фильтрацией"""
     # Если пользователь залогинен, показываем его расходы
@@ -269,6 +400,7 @@ def expense_list(request):
     }
     return render(request, 'pets/expense_list.html', context)
 
+@login_required
 def expense_add(request):
     """Добавление нового расхода"""
     if request.method == 'POST':
@@ -300,6 +432,7 @@ def expense_add(request):
     }
     return render(request, 'pets/form.html', context)
 
+@login_required
 def analytics(request):
     """
     Страница аналитики с переключением между таблицами и графиками
@@ -578,7 +711,7 @@ def export_expenses_csv(request):
     
     return response
 
-class PetUpdateView(UpdateView):
+class PetUpdateView(LoginRequiredMixin, UpdateView):
     """Редактирование питомца"""
     model = Pet
     form_class = PetForm
@@ -593,7 +726,7 @@ class PetUpdateView(UpdateView):
         messages.success(self.request, f'Питомец "{self.object.name}" успешно обновлен!')
         return reverse_lazy('pets:pet_detail', kwargs={'pk': self.object.pk})
 
-class ExpenseUpdateView(UpdateView):
+class ExpenseUpdateView(LoginRequiredMixin, UpdateView):
     """Редактирование расхода"""
     model = Expense
     template_name = 'pets/expense_form.html'
@@ -615,7 +748,7 @@ class ExpenseUpdateView(UpdateView):
         messages.success(self.request, f'Расход успешно обновлен!')
         return reverse_lazy('pets:expense_list')
 
-class PetDeleteView(DeleteView):
+class PetDeleteView(LoginRequiredMixin, DeleteView):
     """Удаление питомца"""
     model = Pet
     template_name = 'pets/pet_confirm_delete.html'
@@ -631,7 +764,7 @@ class PetDeleteView(DeleteView):
         messages.success(request, f'Питомец "{pet.name}" успешно удален!')
         return super().delete(request, *args, **kwargs)
 
-class ExpenseDeleteView(DeleteView):
+class ExpenseDeleteView(LoginRequiredMixin, DeleteView):
     """Удаление расхода"""
     model = Expense
     template_name = 'pets/expense_confirm_delete.html'
