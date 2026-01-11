@@ -1,0 +1,32 @@
+databases:
+  - name: petcosttracker-db
+    databaseName: petcosttracker
+    user: admin       
+    plan: free
+    region: frankfurt
+
+services:
+  - type: web
+    name: pet-cost-tracker
+    env: python
+    plan: free
+    region: frankfurt
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      python manage.py collectstatic --noinput
+    startCommand: >
+      python manage.py migrate &&
+      gunicorn petcosttracker.wsgi:application
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: petcosttracker-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: False
+      - key: WEB_CONCURRENCY
+        value: 4
+    healthCheckPath: /

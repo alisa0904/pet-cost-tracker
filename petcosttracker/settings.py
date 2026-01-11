@@ -11,6 +11,17 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+import os
+import sys
+import dj_database_url
+from dotenv import load_dotenv
+
+# 1. Сначала загружаем переменные окружения
+load_dotenv()
+
+# 2. Определяем, находимся ли мы на Render
+IS_RENDER = os.environ.get('RENDER', False)
+IS_PRODUCTION = os.environ.get('DATABASE_URL') is not None or IS_RENDER
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,12 +31,27 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-xj02_h0kn%5kelh$35_sln_zo8s!kg!%#)y3(9+mbda9xu*ypk'
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-xj02_h0kn%5kelh$35_sln_zo8s!kg!%#)y3(9+mbda9xu*ypk')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# ЕДИНСТВЕННОЕ определение DEBUG
+if IS_PRODUCTION:
+    DEBUG = False
+else:
+    DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = []
+# Разрешенные хосты для продакшена
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    '.onrender.com',    # Для Render.com
+    '.railway.app',     # Для Railway.app
+    '.herokuapp.com',   # Для Heroku
+]
+
+# Дополнительные хосты из переменной окружения
+if os.environ.get('ALLOWED_HOSTS'):
+    ALLOWED_HOSTS.extend(os.environ.get('ALLOWED_HOSTS').split(','))
 
 
 # Application definition
@@ -42,6 +68,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Для обслуживания статических файлов
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -56,7 +83,7 @@ TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [
-            BASE_DIR / 'templates',  # ← Убедитесь, что эта строка есть
+            BASE_DIR / 'templates',
         ],
         'APP_DIRS': True,
         'OPTIONS': {
@@ -76,12 +103,22 @@ WSGI_APPLICATION = 'petcosttracker.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+# База данных по умолчанию (SQLite для разработки)
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+# Используем PostgreSQL на продакшене если указана переменная DATABASE_URL
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if DATABASE_URL:
+    DATABASES['default'] = dj_database_url.config(
+        default=DATABASE_URL,
+        conn_max_age=600,
+        ssl_require=not DEBUG
+    )
 
 
 # Password validation
@@ -106,9 +143,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'ru-ru'  # Изменено на русский
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Europe/Moscow'  # Изменено на московское время
 
 USE_I18N = True
 
@@ -118,14 +155,67 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
+# URL для статических файлов
 STATIC_URL = 'static/'
-import os
-print("BASE_DIR:", BASE_DIR)
-print("Templates path:", BASE_DIR / 'templates')
-print("Templates exists:", os.path.exists(BASE_DIR / 'templates'))
+
+# Папка, где collectstatic соберет все статические файлы
+STATIC_ROOT = str(BASE_DIR / 'staticfiles')  # ← ДОБАВЬТЕ str() ЗДЕСЬ!
+
+# Дополнительные папки со статикой
+STATICFILES_DIRS = [
+    str(BASE_DIR / 'static'),  # ← ДОБАВЬТЕ str() ЗДЕСЬ!
+]
+
+# Использование WhiteNoise для обслуживания статических файлов
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Media files (если будут загружаться файлы)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# Настройки аутентификации
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'pets:home'
 LOGOUT_REDIRECT_URL = 'pets:home'
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
+
+# Безопасность для продакшена
+if not DEBUG:
+    # HTTPS настройки
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    
+    # HSTS (HTTP Strict Transport Security)
+    SECURE_HSTS_SECONDS = 31536000  # 1 год
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    
+    # Другие настройки безопасности
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Логирование для отладки
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'WARNING',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': os.getenv('DJANGO_LOG_LEVEL', 'INFO'),
+            'propagate': False,
+        },
+    },
+}
