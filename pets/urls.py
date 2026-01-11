@@ -8,19 +8,18 @@ from .views import (
     global_search
 )
 
-
 app_name = 'pets'
 
 urlpatterns = [
-    # Главная страница
+    # Главная страница (доступна по /pets/)
     path('', views.home, name='home'),
     
-    # Питомцы
-    path('pets/', views.pet_list, name='pet_list'),
-    path('pets/add/', views.pet_add, name='pet_add'),
-    path('pets/<int:pk>/', views.pet_detail, name='pet_detail'),
-    path('pets/<int:pk>/edit/', PetUpdateView.as_view(), name='pet_edit'),
-    path('pets/<int:pk>/delete/', PetDeleteView.as_view(), name='pet_delete'),
+    # Питомцы (без префикса 'pets/' так как он уже в главном urls.py)
+    path('', views.pet_list, name='pet_list'),  # Должно быть path('', ...) а не path('pets/', ...)
+    path('add/', views.pet_add, name='pet_add'),
+    path('<int:pk>/', views.pet_detail, name='pet_detail'),
+    path('<int:pk>/edit/', PetUpdateView.as_view(), name='pet_edit'),
+    path('<int:pk>/delete/', PetDeleteView.as_view(), name='pet_delete'),
     
     # Расходы
     path('expenses/', views.expense_list, name='expense_list'),
