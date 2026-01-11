@@ -16,19 +16,24 @@ from django.urls import reverse_lazy
 import io
 import base64
 from django.db.models.functions import TruncMonth, TruncDate, ExtractMonth, ExtractYear
-
+import matplotlib
+matplotlib.use('Agg')  # Важно: устанавливаем бэкенд ДО импорта pyplot
+import matplotlib.pyplot as plt
 from .models import Pet, Expense, ExpenseCategory
 from .forms import PetForm, ExpenseForm
 
-# ==================== ИНИЦИАЛИЗАЦИЯ ГРАФИКОВ ====================
+# Проверка доступности matplotlib для аналитики
 try:
     import matplotlib
-    matplotlib.use('Agg')  # Для работы без GUI
+    matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+    import numpy as np
     MATPLOTLIB_AVAILABLE = True
-except ImportError:
+except ImportError as e:
+    print(f"Matplotlib import error: {e}")
     MATPLOTLIB_AVAILABLE = False
     plt = None
+    np = None
 
 # ==================== АУТЕНТИФИКАЦИЯ ====================
 
@@ -89,32 +94,6 @@ def register_view(request):
             return redirect('pets:home')
     
     return render(request, 'registration/register.html')
-
-def emergency_login(request):
-    """Экстренный вход для тестирования"""
-    if request.method == 'POST':
-        username = request.POST.get('username')
-        password = request.POST.get('password')
-        
-        if username == 'admin' and password == 'admin123':
-            try:
-                user = User.objects.get(username='admin')
-                user.set_password('admin123')
-                user.save()
-            except User.DoesNotExist:
-                user = User.objects.create_superuser(
-                    username='admin',
-                    email='admin@example.com',
-                    password='admin123'
-                )
-            
-            login(request, user)
-            messages.success(request, 'Экстренный вход выполнен!')
-            return redirect('pets:home')
-        else:
-            messages.error(request, 'Неправильные тестовые данные')
-    
-    return render(request, 'registration/login.html')
 
 def create_default_data():
     """Создание тестовых данных"""
@@ -467,7 +446,8 @@ def analytics(request):
     if not expenses.exists():
         return render(request, 'pets/analytics.html', {
             'pets': pets,
-            'no_data': True
+            'no_data': True,
+            'matplotlib_error': not MATPLOTLIB_AVAILABLE
         })
     
     # Определяем режим отображения
@@ -482,7 +462,11 @@ def analytics(request):
                 'no_data': False,
                 'view_mode': 'charts',
                 'matplotlib_error': True,
-                'period': period
+                'period': period,
+                'stats': None,
+                'chart1': None,
+                'chart2': None,
+                'chart3': None
             })
         
         # Определяем даты для фильтрации
@@ -515,7 +499,7 @@ def analytics(request):
         try:
             category_data = filtered_expenses.values('category__name').annotate(
                 total=Sum('amount')
-            ).order_by('-total')[:6]  # Только топ-6 категорий
+            ).order_by('-total')[:6]
             
             if category_data:
                 categories = []
@@ -524,26 +508,29 @@ def analytics(request):
                 for item in category_data:
                     cat_name = item['category__name'] or 'Без категории'
                     if cat_name:
-                        categories.append(cat_name[:15])  # Ограничиваем длину названия
+                        categories.append(cat_name[:15])
                         amounts.append(float(item['total']))
                 
                 if categories and amounts:
-                    plt.figure(figsize=(8, 8))
+                    fig, ax = plt.subplots(figsize=(8, 8))
                     colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40']
-                    plt.pie(amounts, labels=categories, colors=colors[:len(categories)], 
-                            autopct='%1.1f%%', startangle=90)
-                    plt.title('Расходы по категориям', fontsize=14)
-                    plt.axis('equal')
+                    ax.pie(amounts, labels=categories, colors=colors[:len(categories)], 
+                          autopct='%1.1f%%', startangle=90)
+                    ax.set_title('Расходы по категориям', fontsize=14)
+                    ax.axis('equal')
                     
                     buf1 = io.BytesIO()
-                    plt.savefig(buf1, format='png', dpi=80, bbox_inches='tight')
+                    fig.savefig(buf1, format='png', dpi=80, bbox_inches='tight')
                     buf1.seek(0)
                     chart1 = base64.b64encode(buf1.getvalue()).decode('utf-8')
                     buf1.close()
-                    plt.close()
+                    plt.close(fig)
         except Exception as e:
             print(f"Ошибка при построении графика 1: {e}")
             chart1 = None
+        finally:
+            if 'fig' in locals():
+                plt.close(fig)
         
         # ГРАФИК 2: Линейный график по времени
         chart2 = None
@@ -574,32 +561,35 @@ def analytics(request):
                     amounts.append(float(item['total']))
                 
                 if len(dates) > 1:
-                    plt.figure(figsize=(10, 5))
-                    plt.plot(dates, amounts, marker='o', linewidth=2, color='#36A2EB')
-                    plt.fill_between(dates, amounts, alpha=0.2, color='#36A2EB')
-                    plt.title('Динамика расходов', fontsize=14)
-                    plt.xlabel('Период')
-                    plt.ylabel('Сумма (руб)')
-                    plt.grid(True, alpha=0.3)
-                    plt.xticks(rotation=45)
+                    fig, ax = plt.subplots(figsize=(10, 5))
+                    ax.plot(dates, amounts, marker='o', linewidth=2, color='#36A2EB')
+                    ax.fill_between(dates, amounts, alpha=0.2, color='#36A2EB')
+                    ax.set_title('Динамика расходов', fontsize=14)
+                    ax.set_xlabel('Период')
+                    ax.set_ylabel('Сумма (руб)')
+                    ax.grid(True, alpha=0.3)
+                    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
                     plt.tight_layout()
                     
                     buf2 = io.BytesIO()
-                    plt.savefig(buf2, format='png', dpi=80)
+                    fig.savefig(buf2, format='png', dpi=80)
                     buf2.seek(0)
                     chart2 = base64.b64encode(buf2.getvalue()).decode('utf-8')
                     buf2.close()
-                    plt.close()
+                    plt.close(fig)
         except Exception as e:
             print(f"Ошибка при построении графика 2: {e}")
             chart2 = None
+        finally:
+            if 'fig' in locals():
+                plt.close(fig)
         
         # ГРАФИК 3: Столбчатая диаграмма по питомцам
         chart3 = None
         try:
             pet_data = filtered_expenses.values('pet__name').annotate(
                 total=Sum('amount')
-            ).order_by('-total')[:5]  # Только топ-5 питомцев
+            ).order_by('-total')[:5]
             
             if pet_data:
                 pet_names = []
@@ -612,32 +602,35 @@ def analytics(request):
                         pet_amounts.append(float(item['total']))
                 
                 if pet_names and pet_amounts:
-                    plt.figure(figsize=(10, 6))
+                    fig, ax = plt.subplots(figsize=(10, 6))
                     colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
-                    bars = plt.bar(pet_names, pet_amounts, color=colors[:len(pet_names)])
-                    plt.title('Расходы по питомцам', fontsize=14)
-                    plt.xlabel('Питомец')
-                    plt.ylabel('Сумма (руб)')
-                    plt.grid(axis='y', alpha=0.3)
+                    bars = ax.bar(pet_names, pet_amounts, color=colors[:len(pet_names)])
+                    ax.set_title('Расходы по питомцам', fontsize=14)
+                    ax.set_xlabel('Питомец')
+                    ax.set_ylabel('Сумма (руб)')
+                    ax.grid(axis='y', alpha=0.3)
                     
                     # Добавляем значения на столбцы
                     for bar in bars:
                         height = bar.get_height()
-                        plt.text(bar.get_x() + bar.get_width()/2., height,
-                                f'{height:,.0f}₽',
-                                ha='center', va='bottom')
+                        ax.text(bar.get_x() + bar.get_width()/2., height,
+                               f'{height:,.0f}₽',
+                               ha='center', va='bottom')
                     
                     plt.tight_layout()
                     
                     buf3 = io.BytesIO()
-                    plt.savefig(buf3, format='png', dpi=80)
+                    fig.savefig(buf3, format='png', dpi=80)
                     buf3.seek(0)
                     chart3 = base64.b64encode(buf3.getvalue()).decode('utf-8')
                     buf3.close()
-                    plt.close()
+                    plt.close(fig)
         except Exception as e:
             print(f"Ошибка при построении графика 3: {e}")
             chart3 = None
+        finally:
+            if 'fig' in locals():
+                plt.close(fig)
         
         context = {
             'pets': pets,
@@ -648,8 +641,11 @@ def analytics(request):
             'chart2': chart2,
             'chart3': chart3,
             'no_data': not filtered_expenses.exists(),
+            'matplotlib_error': False,
             'filtered_data_count': filtered_expenses.count(),
             'all_data_count': expenses.count(),
+            'start_date': start_date,
+            'end_date': today,
         }
     
     # ==================== РЕЖИМ ТАБЛИЦ ====================
@@ -730,6 +726,7 @@ def analytics(request):
             'pet_count': pets.count(),
             'current_month': current_month_start.strftime('%Y-%m'),
             'no_data': False,
+            'matplotlib_error': not MATPLOTLIB_AVAILABLE,
         }
     
     return render(request, 'pets/analytics.html', context)
@@ -737,7 +734,6 @@ def analytics(request):
 def export_expenses_csv(request):
     """Экспорт расходов в CSV"""
     import csv
-    from django.http import HttpResponse
     
     expenses = Expense.objects.all()
     
