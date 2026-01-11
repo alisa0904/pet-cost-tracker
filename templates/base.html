@@ -23,6 +23,16 @@
                 max-width: 100%;
             }
         }
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background-color: #6c757d;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 8px;
+        }
     </style>
 </head>
 <body>
@@ -90,7 +100,7 @@
                             <li><a class="dropdown-item" href="{% url 'pets:analytics' %}">
                                 <i class="bi bi-table"></i> Табличная аналитика
                             </a></li>
-                            <li><a class="dropdown-item" href="{% url 'pets:analytics' %}">
+                            <li><a class="dropdown-item" href="{% url 'pets:analytics' %}?view=charts">
                                 <i class="bi bi-bar-chart"></i> Графики
                             </a></li>
                         </ul>
@@ -109,26 +119,66 @@
                     </div>
                 </form>
                 
-                <!-- Уведомления и пользователь (заглушка) -->
+                <!-- Блок авторизации -->
                 <ul class="navbar-nav ms-3">
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" 
-                           data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="bi bi-person-circle"></i> Аккаунт
-                        </a>
-                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                            <li><a class="dropdown-item" href="#">
-                                <i class="bi bi-person"></i> Профиль
-                            </a></li>
-                            <li><a class="dropdown-item" href="#">
-                                <i class="bi bi-gear"></i> Настройки
-                            </a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item text-danger" href="#">
-                                <i class="bi bi-box-arrow-right"></i> Выйти
-                            </a></li>
-                        </ul>
-                    </li>
+                    {% if user.is_authenticated %}
+                        <!-- Пользователь авторизован -->
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" 
+                               data-bs-toggle="dropdown" aria-expanded="false">
+                                <div class="user-avatar">
+                                    <i class="bi bi-person text-white"></i>
+                                </div>
+                                {{ user.username }}
+                            </a>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                                <li class="dropdown-header">
+                                    <small>Вы вошли как</small><br>
+                                    <strong>{{ user.username }}</strong>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                {% if user.is_superuser %}
+                                <li><a class="dropdown-item" href="/admin/" target="_blank">
+                                    <i class="bi bi-shield-lock text-danger"></i> Админ-панель
+                                </a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                {% endif %}
+                                <li><a class="dropdown-item" href="#">
+                                    <i class="bi bi-person"></i> Профиль
+                                </a></li>
+                                <li><a class="dropdown-item" href="#">
+                                    <i class="bi bi-gear"></i> Настройки
+                                </a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <form method="post" action="{% url 'pets:logout' %}" id="logout-form" style="display: none;">
+                                        {% csrf_token %}
+                                    </form>
+                                    <a class="dropdown-item text-danger" href="#" onclick="document.getElementById('logout-form').submit();">
+                                        <i class="bi bi-box-arrow-right"></i> Выйти
+                                    </a>
+                                </li>
+                            </ul>
+                        </li>
+                    {% else %}
+                        <!-- Пользователь не авторизован -->
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'pets:login' %}">
+                                <i class="bi bi-box-arrow-in-right"></i> Войти
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'pets:register' %}">
+                                <i class="bi bi-person-plus"></i> Регистрация
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-warning" href="{% url 'pets:emergency_login' %}" 
+                               title="Тестовый вход для администратора">
+                                <i class="bi bi-shield-check"></i> Тест
+                            </a>
+                        </li>
+                    {% endif %}
                 </ul>
             </div>
         </div>
@@ -139,6 +189,15 @@
         {% if messages %}
             {% for message in messages %}
                 <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                    {% if message.tags == 'success' %}
+                        <i class="bi bi-check-circle-fill me-2"></i>
+                    {% elif message.tags == 'error' %}
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    {% elif message.tags == 'warning' %}
+                        <i class="bi bi-exclamation-circle-fill me-2"></i>
+                    {% else %}
+                        <i class="bi bi-info-circle-fill me-2"></i>
+                    {% endif %}
                     {{ message }}
                     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                 </div>
@@ -158,17 +217,34 @@
                     <span class="text-muted">
                         <i class="bi bi-heart text-danger"></i> PetCostTracker © 2023
                     </span>
+                    {% if user.is_authenticated %}
+                        <span class="badge bg-success ms-2">
+                            <i class="bi bi-person-check"></i> {{ user.username }}
+                        </span>
+                    {% else %}
+                        <span class="badge bg-warning ms-2">
+                            <i class="bi bi-person-x"></i> Гость
+                        </span>
+                    {% endif %}
                 </div>
                 <div class="col-md-6 text-end">
                     <span class="text-muted">
                         Отслеживайте расходы на ваших питомцев с умом
                     </span>
+                    <br>
+                    <small class="text-muted">
+                        {% if debug %}
+                            <span class="badge bg-danger">DEBUG MODE</span>
+                        {% endif %}
+                    </small>
                 </div>
             </div>
         </div>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Основной JavaScript -->
     <script>
         // Автоматическое скрытие сообщений через 5 секунд
         document.addEventListener('DOMContentLoaded', function() {
@@ -187,6 +263,39 @@
             return new bootstrap.Tooltip(tooltipTriggerEl);
         });
     </script>
+    
+    <!-- JavaScript для автозаполнения тестовых данных (только на странице логина) -->
+    {% if not user.is_authenticated %}
+    <script>
+        // Проверяем, находимся ли на странице логина
+        if (window.location.pathname.includes('/accounts/login/') || window.location.pathname === '/accounts/login') {
+            document.addEventListener('DOMContentLoaded', function() {
+                const usernameField = document.querySelector('input[name="username"]');
+                const passwordField = document.querySelector('input[name="password"]');
+                
+                if (usernameField && passwordField) {
+                    // Создаем кнопку быстрого входа
+                    const form = document.querySelector('form');
+                    if (form) {
+                        const testButton = document.createElement('button');
+                        testButton.type = 'button';
+                        testButton.className = 'btn btn-warning btn-sm mt-3 w-100';
+                        testButton.innerHTML = '<i class="bi bi-lightning-charge"></i> Быстрый тестовый вход (admin/admin123)';
+                        
+                        testButton.addEventListener('click', function() {
+                            usernameField.value = 'admin';
+                            passwordField.value = 'admin123';
+                            form.submit();
+                        });
+                        
+                        form.appendChild(testButton);
+                    }
+                }
+            });
+        }
+    </script>
+    {% endif %}
+    
     {% block extra_js %}{% endblock %}
 </body>
 </html>
