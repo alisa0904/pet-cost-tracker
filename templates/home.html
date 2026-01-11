@@ -13,6 +13,5 @@
     </div>
 {% else %}
     <p>Пожалуйста, войдите в систему.</p>
-    <a href="/admin/" class="btn btn-primary">Войти</a>
-{% endif %}
+    <a href="{% url 'login' %}" class="btn btn-primary">Войти</a>
 {% endblock %}

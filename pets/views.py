@@ -26,7 +26,7 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
     plt = None
 
-@login_required
+#@login_required
 def home(request):
     """Главная страница с общей статистикой"""
     pets = Pet.objects.filter(owner=request.user)
@@ -76,7 +76,7 @@ def home(request):
         'pet_count': pets.count(),
         'expense_count': expenses.count(),
     }
-    return render(request, 'pets/home.html', context)
+    return render(request, 'home.html', context)
 
 @login_required
 def pet_list(request):
