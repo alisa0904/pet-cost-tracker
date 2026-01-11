@@ -26,11 +26,17 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
     plt = None
 
-#@login_required
 def home(request):
     """Главная страница с общей статистикой"""
-    pets = Pet.objects.filter(owner=request.user)
-    expenses = Expense.objects.filter(pet__owner=request.user)
+    # Обрабатываем аутентифицированных и анонимных пользователей
+    if request.user.is_authenticated:
+        # Для залогиненных пользователей показываем их данные
+        pets = Pet.objects.filter(owner=request.user)
+        expenses = Expense.objects.filter(pet__owner=request.user)
+    else:
+        # Для анонимных пользователей показываем ВСЕ данные (временно)
+        pets = Pet.objects.all()
+        expenses = Expense.objects.all()
     
     # Общая статистика
     total_expenses = expenses.aggregate(total=Sum('amount'))['total'] or 0
@@ -78,7 +84,7 @@ def home(request):
     }
     return render(request, 'home.html', context)
 
-@login_required
+
 def pet_list(request):
     """Список всех питомцев пользователя с суммарными расходами"""
     pets = Pet.objects.filter(owner=request.user).annotate(
@@ -156,7 +162,7 @@ def pet_detail(request, pk):
     }
     return render(request, 'pets/pet_detail.html', context)
 
-@login_required
+
 def pet_add(request):
     """Добавление нового питомца"""
     if request.method == 'POST':
@@ -176,7 +182,7 @@ def pet_add(request):
     }
     return render(request, 'pets/form.html', context)
 
-@login_required
+
 def expense_list(request):
     """Список всех расходов с фильтрацией"""
     expenses = Expense.objects.filter(pet__owner=request.user).select_related('pet', 'category')
@@ -233,7 +239,7 @@ def expense_list(request):
     }
     return render(request, 'pets/expense_list.html', context)
 
-@login_required
+
 def expense_add(request):
     """Добавление нового расхода"""
     if request.method == 'POST':
@@ -261,7 +267,7 @@ def expense_add(request):
     }
     return render(request, 'pets/form.html', context)
 
-@login_required
+
 def analytics(request):
     """
     Страница аналитики с переключением между таблицами и графиками
@@ -504,7 +510,7 @@ def analytics(request):
     
     return render(request, 'pets/analytics.html', context)
 
-@login_required
+
 def export_expenses_csv(request):
     """Экспорт расходов в CSV"""
     import csv
@@ -593,7 +599,7 @@ class ExpenseDeleteView(LoginRequiredMixin, DeleteView):
         messages.success(request, f'Расход на сумму {expense.amount}₽ успешно удален!')
         return super().delete(request, *args, **kwargs)
 
-@login_required
+
 def global_search(request):
     """Глобальный поиск по всем данным"""
     query = request.GET.get('q', '').strip()
