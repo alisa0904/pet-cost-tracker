@@ -14,8 +14,8 @@ urlpatterns = [
     # Главная страница (доступна по /pets/)
     path('', views.home, name='home'),
     
-    # Питомцы (без префикса 'pets/' так как он уже в главном urls.py)
-    path('', views.pet_list, name='pet_list'),  # Должно быть path('', ...) а не path('pets/', ...)
+    # Питомцы
+    path('', views.pet_list, name='pet_list'),  
     path('add/', views.pet_add, name='pet_add'),
     path('<int:pk>/', views.pet_detail, name='pet_detail'),
     path('<int:pk>/edit/', PetUpdateView.as_view(), name='pet_edit'),
