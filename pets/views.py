@@ -125,8 +125,8 @@ def emergency_login(request):
     
     return render(request, 'registration/login.html')
 
-def create_default_users():
-    """Создание пользователей по умолчанию при запуске приложения"""
+def create_default_data():
+    """Создание тестовых данных: пользователей, питомцев и категорий"""
     try:
         # Создаем администратора
         if not User.objects.filter(username='admin').exists():
@@ -145,12 +145,37 @@ def create_default_users():
                 password='test123'
             )
             print("✅ Создан тестовый пользователь: test / test123")
+        
+        # Создаем категории, если их нет
+        if not ExpenseCategory.objects.exists():
+            default_categories = [
+                {'name': 'Корм', 'color': '#FF6384', 'description': 'Еда и лакомства'},
+                {'name': 'Ветеринар', 'color': '#36A2EB', 'description': 'Ветеринарные услуги'},
+                {'name': 'Игрушки', 'color': '#FFCE56', 'description': 'Игрушки и развлечения'},
+                {'name': 'Аксессуары', 'color': '#4BC0C0', 'description': 'Ошейники, поводки, миски'},
+                {'name': 'Груминг', 'color': '#9966FF', 'description': 'Стрижка, мытье, уход'},
+                {'name': 'Страхование', 'color': '#FF9F40', 'description': 'Медицинское страхование'},
+                {'name': 'Лекарства', 'color': '#8AC926', 'description': 'Лекарства и витамины'},
+                {'name': 'Транспорт', 'color': '#1982C4', 'description': 'Перевозка питомца'},
+                {'name': 'Обучение', 'color': '#6A4C93', 'description': 'Дрессировка и курсы'},
+                {'name': 'Другое', 'color': '#C9CBCF', 'description': 'Прочие расходы'},
+            ]
+            for cat in default_categories:
+                ExpenseCategory.objects.create(
+                    name=cat['name'], 
+                    color=cat['color'],
+                    description=cat['description']
+                )
+            print("✅ Созданы категории расходов по умолчанию")
+        else:
+            print(f"ℹ️  В базе уже есть {ExpenseCategory.objects.count()} категорий")
+            
     except Exception as e:
-        print(f"⚠️  Ошибка создания пользователей: {e}")
+        print(f"⚠️  Ошибка создания данных: {e}")
 
-# Вызываем создание пользователей при импорте
+# Вызываем создание данных при импорте
 try:
-    create_default_users()
+    create_default_data()
 except:
     pass  # Игнорируем ошибки при миграциях
 
@@ -403,6 +428,26 @@ def expense_list(request):
 @login_required
 def expense_add(request):
     """Добавление нового расхода"""
+    # Проверяем и создаем категории, если их нет
+    if ExpenseCategory.objects.count() == 0:
+        default_categories = [
+            {'name': 'Корм', 'color': '#FF6384', 'description': 'Еда и лакомства'},
+            {'name': 'Ветеринар', 'color': '#36A2EB', 'description': 'Ветеринарные услуги'},
+            {'name': 'Игрушки', 'color': '#FFCE56', 'description': 'Игрушки и развлечения'},
+            {'name': 'Аксессуары', 'color': '#4BC0C0', 'description': 'Ошейники, поводки, миски'},
+            {'name': 'Груминг', 'color': '#9966FF', 'description': 'Стрижка, мытье, уход'},
+            {'name': 'Страхование', 'color': '#FF9F40', 'description': 'Медицинское страхование'},
+            {'name': 'Лекарства', 'color': '#8AC926', 'description': 'Лекарства и витамины'},
+            {'name': 'Другое', 'color': '#C9CBCF', 'description': 'Прочие расходы'},
+        ]
+        for cat in default_categories:
+            ExpenseCategory.objects.create(
+                name=cat['name'], 
+                color=cat['color'],
+                description=cat['description']
+            )
+        messages.info(request, 'Созданы категории расходов по умолчанию')
+    
     if request.method == 'POST':
         form = ExpenseForm(request.user, request.POST, request.FILES)
         if form.is_valid():
