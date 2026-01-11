@@ -13,6 +13,9 @@ from django.urls import reverse_lazy
 import io
 import base64
 
+
+from django.db.models.functions import TruncMonth, TruncDate, ExtractMonth, ExtractYear
+
 from .models import Pet, Expense, ExpenseCategory
 from .forms import PetForm, ExpenseForm
 
@@ -64,12 +67,17 @@ def home(request):
         expense_count=Count('expenses')
     ).order_by('-total_spent')[:3]
     
-    # Расходы по месяцам (для графика)
-    monthly_data = expenses.extra(
-        select={'month': "strftime('%%Y-%%m', date)"}
+    monthly_data = expenses.annotate(
+        month=TruncMonth('date')
     ).values('month').annotate(
         total=Sum('amount')
     ).order_by('month')[:6]
+    
+    # Форматируем данные для шаблона
+    monthly_data_formatted = [
+        {'month': item['month'].strftime('%Y-%m'), 'total': item['total']}
+        for item in monthly_data
+    ]
     
     context = {
         'pets': pets,
@@ -78,16 +86,21 @@ def home(request):
         'recent_expenses': recent_expenses,
         'category_stats': category_stats,
         'pet_stats': pet_stats,
-        'monthly_data': list(monthly_data),
+        'monthly_data': monthly_data_formatted,
         'pet_count': pets.count(),
         'expense_count': expenses.count(),
     }
     return render(request, 'home.html', context)
 
-
 def pet_list(request):
     """Список всех питомцев пользователя с суммарными расходами"""
-    pets = Pet.objects.filter(owner=request.user).annotate(
+    # Если пользователь залогинен, показываем его питомцев
+    if request.user.is_authenticated:
+        pets = Pet.objects.filter(owner=request.user)
+    else:
+        pets = Pet.objects.all()
+    
+    pets = pets.annotate(
         total_expenses=Sum('expenses__amount'),
         expense_count=Count('expenses')
     )
@@ -124,10 +137,15 @@ def pet_list(request):
     }
     return render(request, 'pets/pet_list.html', context)
 
-@login_required
 def pet_detail(request, pk):
     """Детальная страница питомца со всеми расходами"""
-    pet = get_object_or_404(Pet, pk=pk, owner=request.user)
+    pet = get_object_or_404(Pet, pk=pk)
+    
+    # Если пользователь залогинен, проверяем владельца
+    if request.user.is_authenticated and pet.owner != request.user:
+        messages.error(request, 'У вас нет доступа к этому питомцу')
+        return redirect('pets:pet_list')
+    
     expenses = pet.expenses.all().order_by('-date')
     
     # Статистика
@@ -140,13 +158,21 @@ def pet_detail(request, pk):
         count=Count('id')
     ).order_by('-total')
     
-    # Расходы по месяцам
-    monthly_expenses = expenses.extra(
-        select={'month': "strftime('%%Y-%%m', date)"}
+    monthly_expenses = expenses.annotate(
+        month=TruncMonth('date')
     ).values('month').annotate(
         total=Sum('amount'),
         count=Count('id')
     ).order_by('-month')
+    
+    # Форматируем для шаблона
+    monthly_expenses_formatted = []
+    for item in monthly_expenses[:12]:  # Последние 12 месяцев
+        monthly_expenses_formatted.append({
+            'month': item['month'].strftime('%Y-%m'),
+            'total': item['total'],
+            'count': item['count']
+        })
     
     # Последние расходы
     recent_expenses = expenses[:10]
@@ -157,11 +183,10 @@ def pet_detail(request, pk):
         'total_spent': total_spent,
         'avg_expense': avg_expense,
         'by_category': by_category,
-        'monthly_expenses': monthly_expenses[:12],  # Последние 12 месяцев
+        'monthly_expenses': monthly_expenses_formatted,
         'expense_count': expenses.count(),
     }
     return render(request, 'pets/pet_detail.html', context)
-
 
 def pet_add(request):
     """Добавление нового питомца"""
@@ -182,10 +207,15 @@ def pet_add(request):
     }
     return render(request, 'pets/form.html', context)
 
-
 def expense_list(request):
     """Список всех расходов с фильтрацией"""
-    expenses = Expense.objects.filter(pet__owner=request.user).select_related('pet', 'category')
+    # Если пользователь залогинен, показываем его расходы
+    if request.user.is_authenticated:
+        expenses = Expense.objects.filter(pet__owner=request.user)
+    else:
+        expenses = Expense.objects.all()
+    
+    expenses = expenses.select_related('pet', 'category')
     
     # Фильтры
     pet_filter = request.GET.get('pet')
@@ -226,7 +256,7 @@ def expense_list(request):
         'page_obj': page_obj,
         'total_amount': total_amount,
         'avg_amount': avg_amount,
-        'pets': Pet.objects.filter(owner=request.user),
+        'pets': Pet.objects.all() if not request.user.is_authenticated else Pet.objects.filter(owner=request.user),
         'categories': ExpenseCategory.objects.all(),
         'filters': {
             'pet': pet_filter,
@@ -238,7 +268,6 @@ def expense_list(request):
         },
     }
     return render(request, 'pets/expense_list.html', context)
-
 
 def expense_add(request):
     """Добавление нового расхода"""
@@ -256,8 +285,12 @@ def expense_add(request):
         pet_id = request.GET.get('pet')
         if pet_id:
             try:
-                pet = Pet.objects.get(id=pet_id, owner=request.user)
-                form.initial['pet'] = pet
+                pet = Pet.objects.get(id=pet_id)
+                # Проверяем владельца, если пользователь залогинен
+                if request.user.is_authenticated and pet.owner != request.user:
+                    messages.error(request, 'Вы не можете добавлять расходы для этого питомца')
+                else:
+                    form.initial['pet'] = pet
             except Pet.DoesNotExist:
                 pass
     
@@ -267,14 +300,17 @@ def expense_add(request):
     }
     return render(request, 'pets/form.html', context)
 
-
 def analytics(request):
     """
     Страница аналитики с переключением между таблицами и графиками
-    Использует параметр GET: view=charts для показа графиков
     """
-    pets = Pet.objects.filter(owner=request.user)
-    expenses = Expense.objects.filter(pet__owner=request.user)
+    # Если пользователь залогинен, показываем его данные
+    if request.user.is_authenticated:
+        pets = Pet.objects.filter(owner=request.user)
+        expenses = Expense.objects.filter(pet__owner=request.user)
+    else:
+        pets = Pet.objects.all()
+        expenses = Expense.objects.all()
     
     if not expenses.exists():
         return render(request, 'pets/analytics.html', {
@@ -359,12 +395,10 @@ def analytics(request):
         # ГРАФИК 2: Динамика расходов по времени
         chart2 = None
         try:
-            # Группируем по дням/неделям в зависимости от периода
+            # Группируем по дням
             if period in ['week', 'month']:
-                # По дням
-                date_format = "%Y-%m-%d"
-                date_data = filtered_expenses.extra(
-                    select={'day': "date"}
+                date_data = filtered_expenses.annotate(
+                    day=TruncDate('date')
                 ).values('day').annotate(
                     total=Sum('amount')
                 ).order_by('day')
@@ -466,24 +500,32 @@ def analytics(request):
             count=Count('id')
         ).order_by('-total')
         
-        # По месяцам
-        monthly_stats = expenses.extra(
-            select={'month': "strftime('%%Y-%%m', date)"}
+        monthly_stats = expenses.annotate(
+            month=TruncMonth('date')
         ).values('month').annotate(
             total=Sum('amount'),
             count=Count('id')
         ).order_by('month')
         
-        # Статистика за текущий месяц
-        current_month = datetime.now().strftime('%Y-%m')
-        current_month_expenses = expenses.extra(
-            where=[f"strftime('%%Y-%%m', date) = '{current_month}'"]
+        # Форматируем для шаблона
+        monthly_stats_formatted = []
+        for item in monthly_stats:
+            monthly_stats_formatted.append({
+                'month': item['month'].strftime('%Y-%m'),
+                'total': item['total'],
+                'count': item['count']
+            })
+        
+        current_month_start = datetime.now().replace(day=1)
+        current_month_expenses = expenses.filter(
+            date__gte=current_month_start
         ).aggregate(total=Sum('amount'))['total'] or 0
         
-        # Сравнение с предыдущим месяцем
-        prev_month = (datetime.now().replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
-        prev_month_expenses = expenses.extra(
-            where=[f"strftime('%%Y-%%m', date) = '{prev_month}'"]
+        prev_month_end = current_month_start - timedelta(days=1)
+        prev_month_start = prev_month_end.replace(day=1)
+        prev_month_expenses = expenses.filter(
+            date__gte=prev_month_start,
+            date__lte=prev_month_end
         ).aggregate(total=Sum('amount'))['total'] or 0
         
         # Изменение в процентах
@@ -498,25 +540,24 @@ def analytics(request):
             'total_stats': total_stats,
             'by_category': by_category,
             'by_pet': by_pet,
-            'monthly_stats': monthly_stats,
+            'monthly_stats': monthly_stats_formatted,
             'current_month_expenses': current_month_expenses,
             'prev_month_expenses': prev_month_expenses,
             'change_percent': change_percent,
             'expense_count': expenses.count(),
             'pet_count': pets.count(),
-            'current_month': current_month,
+            'current_month': current_month_start.strftime('%Y-%m'),
             'no_data': False,
         }
     
     return render(request, 'pets/analytics.html', context)
-
 
 def export_expenses_csv(request):
     """Экспорт расходов в CSV"""
     import csv
     from django.http import HttpResponse
     
-    expenses = Expense.objects.filter(pet__owner=request.user)
+    expenses = Expense.objects.all()
     
     # Создаем HTTP-ответ с CSV
     response = HttpResponse(content_type='text/csv')
@@ -537,26 +578,27 @@ def export_expenses_csv(request):
     
     return response
 
-class PetUpdateView(LoginRequiredMixin, UpdateView):
+class PetUpdateView(UpdateView):
     """Редактирование питомца"""
     model = Pet
     form_class = PetForm
     template_name = 'pets/pet_form.html'
     
     def get_queryset(self):
-        return Pet.objects.filter(owner=self.request.user)
+        if self.request.user.is_authenticated:
+            return Pet.objects.filter(owner=self.request.user)
+        return Pet.objects.all()
     
     def get_success_url(self):
         messages.success(self.request, f'Питомец "{self.object.name}" успешно обновлен!')
         return reverse_lazy('pets:pet_detail', kwargs={'pk': self.object.pk})
 
-class ExpenseUpdateView(LoginRequiredMixin, UpdateView):
+class ExpenseUpdateView(UpdateView):
     """Редактирование расхода"""
     model = Expense
     template_name = 'pets/expense_form.html'
     
     def get_form_class(self):
-        # Возвращаем форму с текущим пользователем
         class ExpenseUpdateForm(ExpenseForm):
             def __init__(self, *args, **kwargs):
                 kwargs['user'] = self.request.user
@@ -565,40 +607,45 @@ class ExpenseUpdateView(LoginRequiredMixin, UpdateView):
         return ExpenseUpdateForm
     
     def get_queryset(self):
-        return Expense.objects.filter(pet__owner=self.request.user)
+        if self.request.user.is_authenticated:
+            return Expense.objects.filter(pet__owner=self.request.user)
+        return Expense.objects.all()
     
     def get_success_url(self):
         messages.success(self.request, f'Расход успешно обновлен!')
-        return reverse_lazy('pets:expense_detail', kwargs={'pk': self.object.pk})
+        return reverse_lazy('pets:expense_list')
 
-class PetDeleteView(LoginRequiredMixin, DeleteView):
+class PetDeleteView(DeleteView):
     """Удаление питомца"""
     model = Pet
     template_name = 'pets/pet_confirm_delete.html'
     success_url = reverse_lazy('pets:pet_list')
     
     def get_queryset(self):
-        return Pet.objects.filter(owner=self.request.user)
+        if self.request.user.is_authenticated:
+            return Pet.objects.filter(owner=self.request.user)
+        return Pet.objects.all()
     
     def delete(self, request, *args, **kwargs):
         pet = self.get_object()
         messages.success(request, f'Питомец "{pet.name}" успешно удален!')
         return super().delete(request, *args, **kwargs)
 
-class ExpenseDeleteView(LoginRequiredMixin, DeleteView):
+class ExpenseDeleteView(DeleteView):
     """Удаление расхода"""
     model = Expense
     template_name = 'pets/expense_confirm_delete.html'
     success_url = reverse_lazy('pets:expense_list')
     
     def get_queryset(self):
-        return Expense.objects.filter(pet__owner=self.request.user)
+        if self.request.user.is_authenticated:
+            return Expense.objects.filter(pet__owner=self.request.user)
+        return Expense.objects.all()
     
     def delete(self, request, *args, **kwargs):
         expense = self.get_object()
         messages.success(request, f'Расход на сумму {expense.amount}₽ успешно удален!')
         return super().delete(request, *args, **kwargs)
-
 
 def global_search(request):
     """Глобальный поиск по всем данным"""
@@ -608,9 +655,7 @@ def global_search(request):
         return redirect('pets:home')
     
     # Поиск по питомцам
-    pets = Pet.objects.filter(
-        owner=request.user
-    ).filter(
+    pets = Pet.objects.all().filter(
         Q(name__icontains=query) |
         Q(breed__icontains=query) |
         Q(species__icontains=query) |
@@ -618,9 +663,7 @@ def global_search(request):
     )[:10]
     
     # Поиск по расходам
-    expenses = Expense.objects.filter(
-        pet__owner=request.user
-    ).filter(
+    expenses = Expense.objects.all().filter(
         Q(description__icontains=query) |
         Q(category__name__icontains=query) |
         Q(notes__icontains=query)
