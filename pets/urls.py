@@ -9,7 +9,6 @@ from .views import (
     login_view,
     logout_view,
     register_view,
-    emergency_login
 )
 
 app_name = 'pets'
@@ -22,7 +21,6 @@ urlpatterns = [
     path('accounts/login/', views.login_view, name='login'),
     path('accounts/logout/', views.logout_view, name='logout'),
     path('accounts/register/', views.register_view, name='register'),
-    path('accounts/emergency/', views.emergency_login, name='emergency_login'),
     
     # Питомцы
     path('pets/', views.pet_list, name='pet_list'),
