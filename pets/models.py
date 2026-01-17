@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
 from decimal import Decimal
+from django.utils import timezone
 from django.db.models.signals import post_migrate
 from django.db import OperationalError
 from django.dispatch import receiver
@@ -43,9 +44,47 @@ class Pet(models.Model):
         return None
     
     def total_expenses(self):
-        """Общая сумма расходов на питомца"""
-        total = self.expenses.aggregate(total=models.Sum('amount'))['total']
-        return total if total else 0
+        """Общая сумма расходов на питомца в рублях"""
+        total = Decimal('0')
+        for expense in self.expenses.all():
+            total += expense.amount_in_rub
+        return total
+    
+    def expenses_by_currency(self):
+        """Возвращает расходы сгруппированные по валюте"""
+        expenses = self.expenses.all()
+        result = {}
+        
+        for expense in expenses:
+            currency = expense.currency
+            if currency not in result:
+                result[currency] = {
+                    'count': 0,
+                    'total': Decimal('0'),
+                    'total_in_rub': Decimal('0'),
+                    'symbol': expense.get_currency_symbol()
+                }
+            
+            result[currency]['count'] += 1
+            result[currency]['total'] += expense.amount
+            result[currency]['total_in_rub'] += expense.amount_in_rub
+        
+        return result
+    
+    def get_expenses_display(self):
+        """Возвращает отформатированную строку расходов"""
+        by_currency = self.expenses_by_currency()
+        if not by_currency:
+            return "0 ₽"
+        
+        result = []
+        for currency, data in by_currency.items():
+            if currency == 'RUB':
+                result.append(f"{data['total']} ₽")
+            else:
+                result.append(f"{data['total']}{data['symbol']}")
+        
+        return " + ".join(result) + f" ≈ {self.total_expenses():.2f} ₽"
 
 
 class ExpenseCategory(models.Model):
@@ -68,6 +107,13 @@ class Expense(models.Model):
         ('USD', 'Доллары ($)'),
         ('EUR', 'Евро (€)'),
     ]
+    
+    # Курсы валют для конвертации 
+    EXCHANGE_RATES = {
+        'RUB': Decimal('1.0'),
+        'USD': Decimal('77.0'),  # 1 USD = 90 RUB
+        'EUR': Decimal('90.4'),  # 1 EUR = 100 RUB
+    }
     
     pet = models.ForeignKey(
         Pet, 
@@ -118,6 +164,68 @@ class Expense(models.Model):
             'EUR': '€'
         }
         return symbols.get(self.currency, self.currency)
+    
+    @property
+    def amount_in_rub(self):
+        """Конвертирует сумму в рубли"""
+        rate = self.EXCHANGE_RATES.get(self.currency, Decimal('1.0'))
+        return self.amount * rate
+    
+    def get_amount_with_symbol(self):
+        """Возвращает сумму с символом валюты"""
+        return f"{self.amount}{self.get_currency_symbol()}"
+    
+    def get_amount_display(self):
+        """Возвращает отформатированную сумму с валютой"""
+        return f"{self.amount} {self.get_currency_display()}"
+    
+    def get_converted_display(self):
+        """Возвращает сумму в рублях с пометкой"""
+        if self.currency == 'RUB':
+            return f"{self.amount} ₽"
+        else:
+            return f"{self.amount}{self.get_currency_symbol()} ≈ {self.amount_in_rub:.2f} ₽"
+    
+    def save(self, *args, **kwargs):
+        # Автоматически устанавливаем сегодняшнюю дату если не указана
+        if not self.date:
+            self.date = timezone.now().date()
+        super().save(*args, **kwargs)
+    
+    @classmethod
+    def get_total_in_rub(cls, queryset=None):
+        """Возвращает общую сумму расходов в рублях"""
+        if queryset is None:
+            queryset = cls.objects.all()
+        
+        total = Decimal('0')
+        for expense in queryset:
+            total += expense.amount_in_rub
+        return total
+    
+    @classmethod
+    def get_statistics_by_currency(cls, queryset=None):
+        """Возвращает статистику по валютам"""
+        if queryset is None:
+            queryset = cls.objects.all()
+        
+        stats = {}
+        for expense in queryset:
+            currency = expense.currency
+            if currency not in stats:
+                stats[currency] = {
+                    'count': 0,
+                    'total_amount': Decimal('0'),
+                    'total_in_rub': Decimal('0'),
+                    'symbol': expense.get_currency_symbol(),
+                    'name': expense.get_currency_display()
+                }
+            
+            stats[currency]['count'] += 1
+            stats[currency]['total_amount'] += expense.amount
+            stats[currency]['total_in_rub'] += expense.amount_in_rub
+        
+        return stats
 
 @receiver(post_migrate)
 def create_default_categories(sender, **kwargs):
