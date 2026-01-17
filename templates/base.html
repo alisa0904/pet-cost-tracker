@@ -151,7 +151,7 @@
                                 </a></li>
                                 <li><hr class="dropdown-divider"></li>
                                 <li>
-                                    <form method="post" action="{% url 'pets:logout' %}" id="logout-form" style="display: none;">
+                                    <form method="post" action="/accounts/logout/" id="logout-form" style="display: none;">
                                         {% csrf_token %}
                                     </form>
                                     <a class="dropdown-item text-danger" href="#" onclick="document.getElementById('logout-form').submit();">

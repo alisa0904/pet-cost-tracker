@@ -6,3 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "petcosttracker"
 version = "1.0.0"
 dependencies = []
+[tool.poetry.dependencies]
+python = "^3.10"
+Django = "^4.2"
