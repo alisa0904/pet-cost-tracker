@@ -174,7 +174,7 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # Настройки аутентификации
-LOGIN_URL = 'login'
+LOGIN_URL = 'pets:login'
 LOGIN_REDIRECT_URL = 'pets:home'
 LOGOUT_REDIRECT_URL = 'pets:home'
 AUTHENTICATION_BACKENDS = [

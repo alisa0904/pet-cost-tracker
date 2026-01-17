@@ -17,7 +17,8 @@ import io
 import base64
 from django.db.models.functions import TruncMonth, TruncDate, ExtractMonth, ExtractYear
 import matplotlib
-matplotlib.use('Agg')  # Важно: устанавливаем бэкенд ДО импорта pyplot
+matplotlib.use('Agg')  
+from django.conf import settings
 import matplotlib.pyplot as plt
 from .models import Pet, Expense, ExpenseCategory
 from .forms import PetForm, ExpenseForm
@@ -858,3 +859,38 @@ def global_search(request):
         results['total_results'] = len(pets_results) + len(expenses_results)
     
     return render(request, 'pets/global_search.html', results)
+
+def emergency_login(request):
+    """Тестовый вход для администратора"""
+    # В продакшене не разрешаем экстренный вход
+    if not settings.DEBUG:
+        messages.error(request, "Тестовый вход доступен только в режиме отладки.")
+        return redirect('pets:home')
+    
+    # Пытаемся найти существующего пользователя admin
+    try:
+        user = User.objects.get(username='admin')
+        # Проверяем пароль
+        user = authenticate(username='admin', password='admin123')
+        if user is None:
+            # Если пароль неверный, устанавливаем новый
+            user.set_password('admin123')
+            user.save()
+            user = authenticate(username='admin', password='admin123')
+    except User.DoesNotExist:
+        # Если пользователя нет, создаем его
+        user = User.objects.create_user(
+            username='admin',
+            password='admin123',
+            is_staff=True,
+            is_superuser=True
+        )
+        messages.info(request, 'Создан тестовый администратор (admin/admin123)')
+    
+    if user:
+        login(request, user)
+        messages.success(request, f'Вы вошли как {user.username} (тестовый режим)')
+        return redirect('pets:home')
+    else:
+        messages.error(request, 'Ошибка тестового входа')
+        return redirect('pets:login')
