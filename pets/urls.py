@@ -8,7 +8,7 @@ from .views import (
     ExpenseDeleteView,
     global_search,
     register_view,
-    emergency_login,  # Добавьте этот импорт
+    emergency_login,  
 )
 
 app_name = 'pets'

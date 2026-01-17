@@ -858,3 +858,47 @@ def global_search(request):
         results['total_results'] = len(pets_results) + len(expenses_results)
     
     return render(request, 'pets/global_search.html', results)
+
+def emergency_login(request):
+    """Тестовый вход для администратора"""
+    # Проверяем, что это тестовый режим (в продакшене не разрешаем)
+    if not settings.DEBUG:
+        messages.error(request, "Тестовый вход доступен только в режиме отладки.")
+        return redirect('pets:home')
+    
+    # Пытаемся войти как admin/admin123
+    username = 'admin'
+    password = 'admin123'
+    
+    # Проверяем, существует ли пользователь admin
+    try:
+        user = User.objects.get(username=username)
+    except User.DoesNotExist:
+        # Создаем тестового пользователя если не существует
+        user = User.objects.create_user(
+            username=username,
+            password=password,
+            email='admin@example.com',
+            is_staff=True,
+            is_superuser=True
+        )
+        messages.info(request, 'Создан тестовый администратор (admin/admin123)')
+    
+    # Аутентифицируем пользователя
+    user = authenticate(username=username, password=password)
+    if user is not None:
+        login(request, user)
+        messages.success(request, f'Вы вошли как {user.username} (тестовый режим)')
+        return redirect('pets:home')
+    else:
+        # Если пароль неверный, устанавливаем правильный
+        user.set_password(password)
+        user.save()
+        user = authenticate(username=username, password=password)
+        if user:
+            login(request, user)
+            messages.success(request, f'Пароль сброшен. Вы вошли как {user.username}')
+            return redirect('pets:home')
+        else:
+            messages.error(request, 'Ошибка тестового входа')
+            return redirect('pets:login')
