@@ -271,19 +271,20 @@ def pet_detail(request, pk):
         count=Count('id')
     ).order_by('-total')
     
+    # По месяцам (последние 12 месяцев)
     monthly_expenses = expenses.annotate(
         month=TruncMonth('date')
     ).values('month').annotate(
         total=Sum('amount'),
         count=Count('id')
-    ).order_by('-month')
+    ).order_by('-month')[:12]
     
     # Форматируем для шаблона
     monthly_expenses_formatted = []
-    for item in monthly_expenses[:12]:
+    for item in monthly_expenses:
         monthly_expenses_formatted.append({
             'month': item['month'].strftime('%Y-%m'),
-            'total': item['total'],
+            'total': item['total'] or 0,
             'count': item['count']
         })
     
@@ -403,7 +404,7 @@ def expense_add(request):
         messages.info(request, 'Созданы категории расходов по умолчанию')
     
     if request.method == 'POST':
-        form = ExpenseForm(request.user, request.POST, request.FILES)
+        form = ExpenseForm(request.POST, user=request.user) 
         if form.is_valid():
             expense = form.save()
             messages.success(request, 
@@ -773,15 +774,14 @@ class PetUpdateView(LoginRequiredMixin, UpdateView):
 class ExpenseUpdateView(LoginRequiredMixin, UpdateView):
     """Редактирование расхода"""
     model = Expense
-    template_name = 'pets/expense_form.html'
+    template_name = 'pets/form.html'
+    form_class = ExpenseForm
     
-    def get_form_class(self):
-        class ExpenseUpdateForm(ExpenseForm):
-            def __init__(self, *args, **kwargs):
-                kwargs['user'] = self.request.user
-                super().__init__(*args, **kwargs)
-        
-        return ExpenseUpdateForm
+    def get_form_kwargs(self):
+        """Добавляем пользователя в kwargs для формы"""
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
     
     def get_queryset(self):
         if self.request.user.is_authenticated:
@@ -789,7 +789,7 @@ class ExpenseUpdateView(LoginRequiredMixin, UpdateView):
         return Expense.objects.all()
     
     def get_success_url(self):
-        messages.success(self.request, f'Расход успешно обновлен!')
+        messages.success(self.request, 'Расход успешно обновлен!')
         return reverse_lazy('pets:expense_list')
 
 class PetDeleteView(LoginRequiredMixin, DeleteView):
@@ -835,15 +835,13 @@ def global_search(request):
     pets = Pet.objects.all().filter(
         Q(name__icontains=query) |
         Q(breed__icontains=query) |
-        Q(species__icontains=query) |
-        Q(notes__icontains=query)
+        Q(species__icontains=query)
     )[:10]
     
     # Поиск по расходам
     expenses = Expense.objects.all().filter(
         Q(description__icontains=query) |
-        Q(category__name__icontains=query) |
-        Q(notes__icontains=query)
+        Q(category__name__icontains=query) 
     ).select_related('pet', 'category')[:10]
     
     # Статистика поиска

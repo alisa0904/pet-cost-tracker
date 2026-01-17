@@ -156,10 +156,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 # URL для статических файлов
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 
 # Папка, где collectstatic соберет все статические файлы
-STATIC_ROOT = str(BASE_DIR / 'staticfiles')  # ← ДОБАВЬТЕ str() ЗДЕСЬ!
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')  # ← ДОБАВЬТЕ str() ЗДЕСЬ!
 
 # Дополнительные папки со статикой
 STATICFILES_DIRS = [

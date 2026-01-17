@@ -23,20 +23,18 @@ class ExpenseForm(forms.ModelForm):
         model = Expense
         fields = ['pet', 'category', 'amount', 'currency', 'date', 'description', 'receipt']
         widgets = {
-            'date': DateInput(attrs={'type': 'date'}),
-            'description': forms.Textarea(attrs={'rows': 3}),
-            'pet': forms.Select(attrs={'class': 'form-select'}),
-            'category': forms.Select(attrs={'class': 'form-select'}),
-            'currency': forms.Select(attrs={'class': 'form-select'}),
+            'date': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+            'description': forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
+            'amount': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
+            'pet': forms.Select(attrs={'class': 'form-control'}),
+            'category': forms.Select(attrs={'class': 'form-control'}),
+            'currency': forms.Select(attrs={'class': 'form-control'}),
         }
     
-    def __init__(self, user=None, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
+        user = kwargs.pop('user', None) 
         super().__init__(*args, **kwargs)
-        # Добавляем CSS классы ко всем полям
-        for field_name, field in self.fields.items():
-            if field_name not in ['pet', 'category', 'currency']:
-                field.widget.attrs['class'] = 'form-control'
         
-        # Фильтруем питомцев по владельцу
         if user:
+            # Фильтруем питомцев только текущего пользователя
             self.fields['pet'].queryset = Pet.objects.filter(owner=user)

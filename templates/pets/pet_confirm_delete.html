@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+
+{% block title %}Удаление питомца - PetCostTracker{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-header bg-danger text-white">
+                    <h4 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Удаление питомца</h4>
+                </div>
+                <div class="card-body">
+                    <h5>Вы уверены, что хотите удалить питомца?</h5>
+                    
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h6>{{ pet.name }}</h6>
+                            <p class="mb-1"><strong>Вид:</strong> {{ pet.species }}</p>
+                            <p class="mb-1"><strong>Порода:</strong> {{ pet.breed }}</p>
+                            <p class="mb-1"><strong>Возраст:</strong> {{ pet.age }} лет</p>
+                            <p class="mb-0"><strong>Расходов:</strong> {{ pet.expenses.count }} записей</p>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <strong>Внимание!</strong> Все расходы для этого питомца также будут удалены.
+                        Это действие нельзя отменить.
+                    </div>
+                    
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="d-flex justify-content-between">
+                            <a href="{% url 'pets:pet_detail' pet.pk %}" class="btn btn-secondary">
+                                <i class="bi bi-arrow-left"></i> Отмена
+                            </a>
+                            <button type="submit" class="btn btn-danger">
+                                <i class="bi bi-trash"></i> Удалить
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

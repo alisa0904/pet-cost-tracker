@@ -1,0 +1,323 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ pet.name }} - PetCostTracker{% endblock %}
+
+{% block extra_css %}
+<style>
+.pet-image-container {
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    overflow: hidden;
+    margin: 0 auto 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 72px;
+}
+.stats-card {
+    transition: transform 0.3s;
+}
+.stats-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+}
+.expense-item {
+    border-left: 4px solid #007bff;
+    padding-left: 15px;
+    margin-bottom: 15px;
+}
+.category-badge {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 5px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Заголовок и кнопки -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1><i class="bi bi-heart"></i> {{ pet.name }}</h1>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'pets:home' %}">Главная</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'pets:pet_list' %}">Питомцы</a></li>
+                    <li class="breadcrumb-item active">{{ pet.name }}</li>
+                </ol>
+            </nav>
+        </div>
+        <div class="btn-group">
+            <a href="{% url 'pets:pet_edit' pet.pk %}" class="btn btn-primary">
+                <i class="bi bi-pencil"></i> Изменить
+            </a>
+            <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal">
+                <i class="bi bi-trash"></i> Удалить
+            </button>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Левая колонка - информация о питомце -->
+        <div class="col-md-4 mb-4">
+            <div class="card">
+                <div class="card-body text-center">
+                    <div class="pet-image-container mb-3">
+                        {% if pet.species == 'Кошка' %}
+                            <i class="bi bi-emoji-smile"></i>
+                        {% elif pet.species == 'Собака' %}
+                            <i class="bi bi-heart-fill"></i>
+                        {% else %}
+                            <i class="bi bi-heart"></i>
+                        {% endif %}
+                    </div>
+                    
+                    <h3>{{ pet.name }}</h3>
+                    <p class="text-muted">{{ pet.species }}</p>
+                    
+                    <div class="list-group list-group-flush">
+                        <div class="list-group-item">
+                            <strong>Порода:</strong> {{ pet.breed|default:"Не указана" }}
+                        </div>
+                        <div class="list-group-item">
+                            <strong>Дата рождения:</strong> 
+                            {% if pet.birth_date %}
+                                {{ pet.birth_date|date:"d.m.Y" }}
+                            {% else %}
+                                Не указана
+                            {% endif %}
+                        </div>
+                        <div class="list-group-item">
+                            <strong>Возраст:</strong> 
+                            {% if pet.birth_date %}
+                                {{ pet.age }} лет
+                            {% else %}
+                                Неизвестно
+                            {% endif %}
+                        </div>
+                        <div class="list-group-item">
+                            <strong>Добавлен:</strong> {{ pet.created_at|date:"d.m.Y" }}
+                        </div>
+                        {% if pet.notes %}
+                        <div class="list-group-item">
+                            <strong>Заметки:</strong><br>
+                            {{ pet.notes|linebreaks }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mt-3">
+                        <a href="{% url 'pets:expense_add' %}?pet={{ pet.pk }}" class="btn btn-success w-100">
+                            <i class="bi bi-plus-circle"></i> Добавить расход
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Правая колонка - статистика и расходы -->
+        <div class="col-md-8">
+            <!-- Статистика -->
+            <div class="row mb-4">
+                <div class="col-md-4 mb-3">
+                    <div class="card stats-card bg-primary text-white">
+                        <div class="card-body text-center">
+                            <h5 class="card-title"><i class="bi bi-cash-stack"></i> Всего</h5>
+                            <h2>{{ total_spent|floatformat:2 }} ₽</h2>
+                            <p class="mb-0">{{ expense_count }} записей</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="card stats-card bg-success text-white">
+                        <div class="card-body text-center">
+                            <h5 class="card-title"><i class="bi bi-calculator"></i> Среднее</h5>
+                            <h2>{{ avg_expense|floatformat:2 }} ₽</h2>
+                            <p class="mb-0">на запись</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="card stats-card bg-info text-white">
+                        <div class="card-body text-center">
+                            <h5 class="card-title"><i class="bi bi-calendar-month"></i> Месяц</h5>
+                            <h2>{{ monthly_expenses.0.total|default:0|floatformat:2 }} ₽</h2>
+                            <p class="mb-0">{{ monthly_expenses.0.count|default:0 }} записей</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Расходы по категориям -->
+            {% if by_category %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-pie-chart"></i> Расходы по категориям</h5>
+                </div>
+                <div class="card-body">
+                    {% for cat in by_category %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>
+                                <span class="badge category-badge custom-badge" data-color="{{ cat.category__color|default:'#007bff' }}"></span>
+                                {{ cat.category__name }}
+                            </span>
+                            <span><strong>{{ cat.total|floatformat:2 }} ₽</strong> ({{ cat.count }} зап.)</span>
+                        </div>
+                        <div class="progress" style="height: 10px;">
+                            <div class="progress-bar custom-progress" 
+                                 data-width="{% widthratio cat.total total_spent 100 %}"
+                                 data-color="{{ cat.category__color|default:'#007bff' }}">
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Последние расходы -->
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-clock-history"></i> Последние расходы</h5>
+                    <a href="{% url 'pets:expense_list' %}?pet={{ pet.pk }}" class="btn btn-sm btn-outline-primary">
+                        Все расходы
+                    </a>
+                </div>
+                <div class="card-body">
+                    {% if expenses %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Дата</th>
+                                    <th>Категория</th>
+                                    <th>Описание</th>
+                                    <th class="text-end">Сумма</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for expense in expenses %}
+                                <tr>
+                                    <td>{{ expense.date|date:"d.m.Y" }}</td>
+                                    <td>
+                                        <span class="badge custom-badge" data-color="{{ expense.category.color|default:'#007bff' }}">
+                                            {{ expense.category.name }}
+                                        </span>
+                                    </td>
+                                    <td>{{ expense.description|default:"-"|truncatechars:30 }}</td>
+                                    <td class="text-end">{{ expense.amount }} {{ expense.currency }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-4">
+                        <i class="bi bi-receipt display-4 text-muted"></i>
+                        <h5 class="mt-3">Нет расходов</h5>
+                        <p class="text-muted">Добавьте первый расход для этого питомца</p>
+                        <a href="{% url 'pets:expense_add' %}?pet={{ pet.pk }}" class="btn btn-primary">
+                            <i class="bi bi-plus-circle"></i> Добавить расход
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Динамика по месяцам -->
+            {% if monthly_expenses %}
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-graph-up"></i> Динамика по месяцам</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Месяц</th>
+                                    <th>Записей</th>
+                                    <th class="text-end">Сумма</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for month in monthly_expenses|slice:":6" %}
+                                <tr>
+                                    <td>{{ month.month }}</td>
+                                    <td>{{ month.count }}</td>
+                                    <td class="text-end">{{ month.total|floatformat:2 }} ₽</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно удаления -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle"></i> Удаление питомца</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Вы уверены, что хотите удалить питомца <strong>{{ pet.name }}</strong>?</p>
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>Внимание!</strong> Все связанные расходы также будут удалены.
+                    Это действие нельзя отменить.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <form method="post" action="{% url 'pets:pet_delete' pet.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-trash"></i> Удалить
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Устанавливаем цвета для бейджей
+    document.querySelectorAll('.custom-badge').forEach(badge => {
+        const color = badge.getAttribute('data-color');
+        if (color) {
+            badge.style.backgroundColor = color;
+        }
+    });
+    
+    // Анимация прогресс-баров
+    const progressBars = document.querySelectorAll('.custom-progress');
+    progressBars.forEach(bar => {
+        const width = bar.getAttribute('data-width') + '%';
+        const color = bar.getAttribute('data-color') || '#007bff';
+        bar.style.width = '0';
+        bar.style.backgroundColor = color;
+        setTimeout(() => {
+            bar.style.width = width;
+            bar.style.transition = 'width 1s ease-in-out';
+        }, 100);
+    });
+});
+</script>
+{% endblock %}
