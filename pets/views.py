@@ -824,36 +824,37 @@ class ExpenseDeleteView(LoginRequiredMixin, DeleteView):
         messages.success(request, f'Расход на сумму {expense.amount}₽ успешно удален!')
         return super().delete(request, *args, **kwargs)
 
+@login_required
 def global_search(request):
-    """Глобальный поиск по всем данным"""
+    """Глобальный поиск по питомцам и расходам"""
     query = request.GET.get('q', '').strip()
-    
-    if not query:
-        return redirect('pets:home')
-    
-    # Поиск по питомцам
-    pets = Pet.objects.all().filter(
-        Q(name__icontains=query) |
-        Q(breed__icontains=query) |
-        Q(species__icontains=query)
-    )[:10]
-    
-    # Поиск по расходам
-    expenses = Expense.objects.all().filter(
-        Q(description__icontains=query) |
-        Q(category__name__icontains=query) 
-    ).select_related('pet', 'category')[:10]
-    
-    # Статистика поиска
-    total_results = pets.count() + expenses.count()
-    
-    context = {
+    results = {
+        'pets': [],
+        'expenses': [],
         'query': query,
-        'pets': pets,
-        'expenses': expenses,
-        'total_results': total_results,
-        'pet_count': pets.count(),
-        'expense_count': expenses.count(),
+        'total_results': 0
     }
     
-    return render(request, 'pets/search_results.html', context)
+    if query:
+        # Поиск питомцев (только принадлежащих текущему пользователю)
+        pets_results = Pet.objects.filter(
+            Q(name__icontains=query) |
+            Q(species__icontains=query) |
+            Q(breed__icontains=query) |
+            Q(description__icontains=query),
+            owner=request.user  # Фильтр по владельцу
+        ).distinct()
+        
+        # Поиск расходов (только принадлежащих текущему пользователю)
+        expenses_results = Expense.objects.filter(
+            Q(category__icontains=query) |
+            Q(description__icontains=query) |
+            Q(notes__icontains=query),
+            pet__owner=request.user  # Фильтр по владельцу питомца
+        ).distinct().select_related('pet')
+        
+        results['pets'] = pets_results
+        results['expenses'] = expenses_results
+        results['total_results'] = len(pets_results) + len(expenses_results)
+    
+    return render(request, 'pets/global_search.html', results)
