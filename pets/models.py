@@ -6,6 +6,8 @@ from django.utils import timezone
 from django.db.models.signals import post_migrate
 from django.db import OperationalError
 from django.dispatch import receiver
+from django.db.models import Sum, Count, F
+
 
 class Pet(models.Model):
     PET_TYPES = [
@@ -50,6 +52,13 @@ class Pet(models.Model):
             total += expense.amount_in_rub
         return total
     
+    @property
+    def total_expenses_cached(self):
+        """Кэшированная версия общей суммы расходов"""
+        if not hasattr(self, '_total_expenses_cache'):
+            self._total_expenses_cache = self.total_expenses()
+        return self._total_expenses_cache
+    
     def expenses_by_currency(self):
         """Возвращает расходы сгруппированные по валюте"""
         expenses = self.expenses.all()
@@ -85,6 +94,21 @@ class Pet(models.Model):
                 result.append(f"{data['total']}{data['symbol']}")
         
         return " + ".join(result) + f" ≈ {self.total_expenses():.2f} ₽"
+    
+    def expenses_count(self):
+        """Количество расходов питомца"""
+        return self.expenses.count()
+    
+    def last_expense_date(self):
+        """Дата последнего расхода"""
+        last_expense = self.expenses.order_by('-date').first()
+        return last_expense.date if last_expense else None
+    
+    def average_expense(self):
+        """Средний расход на питомца"""
+        total = self.total_expenses()
+        count = self.expenses_count()
+        return total / count if count > 0 else Decimal('0')
 
 
 class ExpenseCategory(models.Model):
@@ -99,6 +123,10 @@ class ExpenseCategory(models.Model):
     
     def __str__(self):
         return self.name
+    
+    def expenses_count(self):
+        """Количество расходов в категории"""
+        return self.expense_set.count()
 
 
 class Expense(models.Model):
@@ -111,8 +139,8 @@ class Expense(models.Model):
     # Курсы валют для конвертации 
     EXCHANGE_RATES = {
         'RUB': Decimal('1.0'),
-        'USD': Decimal('77.0'),  # 1 USD = 90 RUB
-        'EUR': Decimal('90.4'),  # 1 EUR = 100 RUB
+        'USD': Decimal('77.0'),
+        'EUR': Decimal('90.4'),
     }
     
     pet = models.ForeignKey(
@@ -152,6 +180,11 @@ class Expense(models.Model):
         verbose_name = 'Расход'
         verbose_name_plural = 'Расходы'
         ordering = ['-date', '-created_at']
+        indexes = [
+            models.Index(fields=['date']),
+            models.Index(fields=['currency']),
+            models.Index(fields=['pet', 'date']),
+        ]
     
     def __str__(self):
         return f"{self.pet.name} - {self.category.name} - {self.amount} {self.currency}"
@@ -191,6 +224,10 @@ class Expense(models.Model):
         if not self.date:
             self.date = timezone.now().date()
         super().save(*args, **kwargs)
+        
+        # Сбрасываем кэш у связанного питомца
+        if hasattr(self.pet, '_total_expenses_cache'):
+            delattr(self.pet, '_total_expenses_cache')
     
     @classmethod
     def get_total_in_rub(cls, queryset=None):
@@ -226,17 +263,28 @@ class Expense(models.Model):
             stats[currency]['total_in_rub'] += expense.amount_in_rub
         
         return stats
+    
+    @staticmethod
+    def get_exchange_rate(currency):
+        """Получить актуальный курс валюты"""
+        return Expense.EXCHANGE_RATES.get(currency, Decimal('1.0'))
+    
+    @classmethod
+    def update_exchange_rate(cls, currency, rate):
+        """Обновить курс валюты"""
+        if currency in cls.CURRENCIES:
+            cls.EXCHANGE_RATES[currency] = Decimal(str(rate))
+
 
 @receiver(post_migrate)
 def create_default_categories(sender, **kwargs):
     """Создает категории по умолчанию после миграций"""
-    if sender.name == 'pets':  # Проверяем, что это наше приложение
+    if sender.name == 'pets':
         from django.db import transaction
         from django.db.utils import ProgrammingError
         
         try:
             with transaction.atomic():
-                # Проверяем, есть ли уже категории
                 if not ExpenseCategory.objects.exists():
                     categories = [
                         {'name': 'Корм', 'color': '#FF6384', 'description': 'Еда и лакомства'},
@@ -258,5 +306,4 @@ def create_default_categories(sender, **kwargs):
                 else:
                     print(f"ℹ️  В базе уже есть {ExpenseCategory.objects.count()} категорий")
         except (ProgrammingError, OperationalError):
-            # Таблица еще не создана, пропускаем
             pass
