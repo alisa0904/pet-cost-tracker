@@ -189,11 +189,12 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
         },
-        'file': {
-            'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'django.log'),
-            'formatter': 'verbose',
-        },
+        # Уберите или закомментируйте handler 'file' для Render
+        # 'file': {
+        #     'class': 'logging.FileHandler',
+        #     'filename': os.path.join(BASE_DIR, 'logs', 'django.log'),
+        #     'formatter': 'verbose',
+        # },
     },
     'root': {
         'handlers': ['console'],
@@ -201,12 +202,12 @@ LOGGING = {
     },
     'loggers': {
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],  # Убрали 'file' здесь
             'level': os.getenv('DJANGO_LOG_LEVEL', 'INFO'),
             'propagate': False,
         },
         'pets': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],  # Убрали 'file' здесь
             'level': 'INFO',
             'propagate': False,
         },
