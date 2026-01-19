@@ -78,6 +78,10 @@ TEMPLATES = [
         },
     },
 ]
+DEFAULT_EXCHANGE_RATES = {
+    'USD': '77.0',  # Курсы по умолчанию, могут быть переопределены переменными окружения
+    'EUR': '90.4',
+}
 
 WSGI_APPLICATION = 'petcosttracker.wsgi.application'
 

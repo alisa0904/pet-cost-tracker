@@ -15,7 +15,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse_lazy
 import io
 import base64
-from django.db.models.functions import TruncMonth, TruncDate, ExtractMonth, ExtractYear
+from django.db.models.functions import TruncMonth, TruncDate
 import matplotlib
 matplotlib.use('Agg')  
 from django.conf import settings
@@ -24,6 +24,22 @@ from .models import Pet, Expense, ExpenseCategory
 from .forms import PetForm, ExpenseForm
 from django.http import HttpResponse
 import csv
+import logging
+
+# Настройка логирования
+logger = logging.getLogger(__name__)
+
+# Константы для категорий (убрали дублирование)
+DEFAULT_CATEGORIES = [
+    {'name': 'Корм', 'color': '#FF6384'},
+    {'name': 'Ветеринар', 'color': '#36A2EB'},
+    {'name': 'Игрушки', 'color': '#FFCE56'},
+    {'name': 'Аксессуары', 'color': '#4BC0C0'},
+    {'name': 'Груминг', 'color': '#9966FF'},
+    {'name': 'Страхование', 'color': '#FF9F40'},
+    {'name': 'Лекарства', 'color': '#8AC926'},
+    {'name': 'Другое', 'color': '#C9CBCF'},
+]
 
 # Проверка доступности matplotlib для аналитики
 try:
@@ -33,7 +49,7 @@ try:
     import numpy as np
     MATPLOTLIB_AVAILABLE = True
 except ImportError as e:
-    print(f"Matplotlib import error: {e}")
+    logger.error(f"Matplotlib import error: {e}")
     MATPLOTLIB_AVAILABLE = False
     plt = None
     np = None
@@ -98,53 +114,15 @@ def register_view(request):
     
     return render(request, 'registration/register.html')
 
-def create_default_data():
-    """Создание тестовых данных"""
+def ensure_default_categories():
+    """Создание категорий расходов по умолчанию (если их нет)"""
     try:
-        # Создаем администратора
-        if not User.objects.filter(username='admin').exists():
-            User.objects.create_superuser(
-                username='admin',
-                email='admin@example.com',
-                password='admin123'
-            )
-            print("✅ Создан администратор: admin / admin123")
-        
-        # Создаем тестового пользователя
-        if not User.objects.filter(username='test').exists():
-            User.objects.create_user(
-                username='test',
-                email='test@example.com',
-                password='test123'
-            )
-            print("✅ Создан тестовый пользователь: test / test123")
-        
-        # Создаем категории, если их нет
         if not ExpenseCategory.objects.exists():
-            categories = [
-                {'name': 'Корм', 'color': '#FF6384'},
-                {'name': 'Ветеринар', 'color': '#36A2EB'},
-                {'name': 'Игрушки', 'color': '#FFCE56'},
-                {'name': 'Аксессуары', 'color': '#4BC0C0'},
-                {'name': 'Груминг', 'color': '#9966FF'},
-                {'name': 'Страхование', 'color': '#FF9F40'},
-                {'name': 'Лекарства', 'color': '#8AC926'},
-                {'name': 'Другое', 'color': '#C9CBCF'},
-            ]
-            for cat in categories:
+            for cat in DEFAULT_CATEGORIES:
                 ExpenseCategory.objects.create(name=cat['name'], color=cat['color'])
-            print("✅ Созданы категории расходов по умолчанию")
-        else:
-            print(f"ℹ️  В базе уже есть {ExpenseCategory.objects.count()} категорий")
-            
+            logger.info("Created default expense categories")
     except Exception as e:
-        print(f"⚠️  Ошибка создания данных: {e}")
-
-# Вызываем создание данных при импорте
-try:
-    create_default_data()
-except:
-    pass
+        logger.error(f"Error creating default categories: {e}")
 
 # ==================== ОСНОВНЫЕ VIEW ====================
 
@@ -391,20 +369,7 @@ def expense_list(request):
 def expense_add(request):
     """Добавление нового расхода"""
     # Создаем категории если их нет
-    if ExpenseCategory.objects.count() == 0:
-        categories = [
-            {'name': 'Корм', 'color': '#FF6384'},
-            {'name': 'Ветеринар', 'color': '#36A2EB'},
-            {'name': 'Игрушки', 'color': '#FFCE56'},
-            {'name': 'Аксессуары', 'color': '#4BC0C0'},
-            {'name': 'Груминг', 'color': '#9966FF'},
-            {'name': 'Страхование', 'color': '#FF9F40'},
-            {'name': 'Лекарства', 'color': '#8AC926'},
-            {'name': 'Другое', 'color': '#C9CBCF'},
-        ]
-        for cat in categories:
-            ExpenseCategory.objects.create(name=cat['name'], color=cat['color'])
-        messages.info(request, 'Созданы категории расходов по умолчанию')
+    ensure_default_categories()
     
     if request.method == 'POST':
         form = ExpenseForm(request.POST, user=request.user) 
@@ -434,329 +399,350 @@ def expense_add(request):
     }
     return render(request, 'pets/form.html', context)
 
+# ==================== АНАЛИТИКА: ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+
+def _get_filtered_expenses(request):
+    """Получение отфильтрованных расходов для аналитики"""
+    if request.user.is_authenticated:
+        expenses = Expense.objects.filter(pet__owner=request.user)
+    else:
+        expenses = Expense.objects.all()
+    return expenses
+
+def _get_period_dates(period):
+    """Получение дат начала и конца периода"""
+    today = timezone.now().date()
+    
+    if period == 'week':
+        start_date = today - timedelta(days=7)
+    elif period == 'month':
+        start_date = today - timedelta(days=30)
+    elif period == 'year':
+        start_date = today - timedelta(days=365)
+    else:
+        start_date = today - timedelta(days=30)
+    
+    return start_date, today
+
+def _create_category_chart(filtered_expenses):
+    """Создание круговой диаграммы по категориям"""
+    try:
+        category_data = filtered_expenses.values('category__name').annotate(
+            total=Sum('amount')
+        ).order_by('-total')[:6]
+        
+        if not category_data:
+            return None
+        
+        categories = []
+        amounts = []
+        
+        for item in category_data:
+            cat_name = item['category__name'] or 'Без категории'
+            if cat_name:
+                categories.append(cat_name[:15])
+                amounts.append(float(item['total']))
+        
+        if not categories or not amounts:
+            return None
+        
+        fig, ax = plt.subplots(figsize=(8, 8))
+        colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40']
+        ax.pie(amounts, labels=categories, colors=colors[:len(categories)], 
+              autopct='%1.1f%%', startangle=90)
+        ax.set_title('Расходы по категориям', fontsize=14)
+        ax.axis('equal')
+        
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=80, bbox_inches='tight')
+        buf.seek(0)
+        chart = base64.b64encode(buf.getvalue()).decode('utf-8')
+        buf.close()
+        plt.close(fig)
+        
+        return chart
+    except Exception as e:
+        logger.error(f"Error creating category chart: {e}")
+        return None
+
+def _create_trend_chart(filtered_expenses, period):
+    """Создание линейного графика по времени"""
+    try:
+        if period == 'week':
+            date_data = filtered_expenses.annotate(
+                day=TruncDate('date')
+            ).values('day').annotate(
+                total=Sum('amount')
+            ).order_by('day')
+        else:
+            date_data = filtered_expenses.annotate(
+                month=TruncMonth('date')
+            ).values('month').annotate(
+                total=Sum('amount')
+            ).order_by('month')
+        
+        if not date_data:
+            return None
+        
+        dates = []
+        amounts = []
+        
+        for item in date_data:
+            if 'day' in item:
+                dates.append(item['day'].strftime('%d.%m'))
+            else:
+                dates.append(item['month'].strftime('%b %Y'))
+            amounts.append(float(item['total']))
+        
+        if len(dates) < 2:
+            return None
+        
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.plot(dates, amounts, marker='o', linewidth=2, color='#36A2EB')
+        ax.fill_between(dates, amounts, alpha=0.2, color='#36A2EB')
+        ax.set_title('Динамика расходов', fontsize=14)
+        ax.set_xlabel('Период')
+        ax.set_ylabel('Сумма (руб)')
+        ax.grid(True, alpha=0.3)
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        plt.tight_layout()
+        
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=80)
+        buf.seek(0)
+        chart = base64.b64encode(buf.getvalue()).decode('utf-8')
+        buf.close()
+        plt.close(fig)
+        
+        return chart
+    except Exception as e:
+        logger.error(f"Error creating trend chart: {e}")
+        return None
+
+def _create_pet_chart(filtered_expenses):
+    """Создание столбчатой диаграммы по питомцам"""
+    try:
+        pet_data = filtered_expenses.values('pet__name').annotate(
+            total=Sum('amount')
+        ).order_by('-total')[:5]
+        
+        if not pet_data:
+            return None
+        
+        pet_names = []
+        pet_amounts = []
+        
+        for item in pet_data:
+            name = item['pet__name'] or 'Без имени'
+            if name:
+                pet_names.append(name[:12])
+                pet_amounts.append(float(item['total']))
+        
+        if not pet_names or not pet_amounts:
+            return None
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
+        bars = ax.bar(pet_names, pet_amounts, color=colors[:len(pet_names)])
+        ax.set_title('Расходы по питомцам', fontsize=14)
+        ax.set_xlabel('Питомец')
+        ax.set_ylabel('Сумма (руб)')
+        ax.grid(axis='y', alpha=0.3)
+        
+        # Добавляем значения на столбцы
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                   f'{height:,.0f}₽',
+                   ha='center', va='bottom')
+        
+        plt.tight_layout()
+        
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=80)
+        buf.seek(0)
+        chart = base64.b64encode(buf.getvalue()).decode('utf-8')
+        buf.close()
+        plt.close(fig)
+        
+        return chart
+    except Exception as e:
+        logger.error(f"Error creating pet chart: {e}")
+        return None
+
+def analytics_tables(request, expenses):
+    """Логика для табличной аналитики"""
+    # Общая статистика
+    total_stats = expenses.aggregate(
+        total=Sum('amount'),
+        avg=Avg('amount'),
+        count=Count('id'),
+        min=Min('amount'),
+        max=Max('amount')
+    )
+    
+    # Статистика по категориям
+    by_category = expenses.values(
+        'category__name', 'category__color'
+    ).annotate(
+        total=Sum('amount'),
+        count=Count('id'),
+        avg=Avg('amount')
+    ).order_by('-total')
+    
+    # По питомцам
+    by_pet = expenses.values(
+        'pet__name'
+    ).annotate(
+        total=Sum('amount'),
+        count=Count('id')
+    ).order_by('-total')
+    
+    # По месяцам
+    monthly_stats = expenses.annotate(
+        month=TruncMonth('date')
+    ).values('month').annotate(
+        total=Sum('amount'),
+        count=Count('id')
+    ).order_by('month')
+    
+    # Форматируем для шаблона
+    monthly_stats_formatted = []
+    for item in monthly_stats:
+        monthly_stats_formatted.append({
+            'month': item['month'].strftime('%Y-%m'),
+            'total': item['total'],
+            'count': item['count']
+        })
+    
+    # Сравнение с предыдущим месяцем
+    current_month_start = datetime.now().replace(day=1)
+    current_month_expenses = expenses.filter(
+        date__gte=current_month_start
+    ).aggregate(total=Sum('amount'))['total'] or 0
+    
+    prev_month_end = current_month_start - timedelta(days=1)
+    prev_month_start = prev_month_end.replace(day=1)
+    prev_month_expenses = expenses.filter(
+        date__gte=prev_month_start,
+        date__lte=prev_month_end
+    ).aggregate(total=Sum('amount'))['total'] or 0
+    
+    # Изменение в процентах
+    if prev_month_expenses > 0:
+        change_percent = ((current_month_expenses - prev_month_expenses) / prev_month_expenses) * 100
+    else:
+        change_percent = 100 if current_month_expenses > 0 else 0
+    
+    return {
+        'view_mode': 'table',
+        'total_stats': total_stats,
+        'by_category': by_category,
+        'by_pet': by_pet,
+        'monthly_stats': monthly_stats_formatted,
+        'current_month_expenses': current_month_expenses,
+        'prev_month_expenses': prev_month_expenses,
+        'change_percent': change_percent,
+        'expense_count': expenses.count(),
+        'current_month': current_month_start.strftime('%Y-%m'),
+        'no_data': not expenses.exists(),
+        'matplotlib_error': not MATPLOTLIB_AVAILABLE,
+    }
+
+def analytics_charts(request, expenses):
+    """Логика для аналитики с графиками"""
+    if not MATPLOTLIB_AVAILABLE:
+        return {
+            'view_mode': 'charts',
+            'no_data': not expenses.exists(),
+            'matplotlib_error': True,
+            'stats': None,
+            'chart1': None,
+            'chart2': None,
+            'chart3': None
+        }
+    
+    period = request.GET.get('period', 'month')
+    start_date, end_date = _get_period_dates(period)
+    
+    # Фильтруем расходы
+    filtered_expenses = expenses.filter(date__gte=start_date)
+    
+    # Если нет данных за период, показываем всё
+    if not filtered_expenses.exists():
+        filtered_expenses = expenses
+    
+    # Статистика
+    stats = {
+        'total_expenses': filtered_expenses.aggregate(Sum('amount'))['amount__sum'] or 0,
+        'average_expense': filtered_expenses.aggregate(Avg('amount'))['amount__avg'] or 0,
+        'expense_count': filtered_expenses.count(),
+    }
+    
+    # Создаем графики
+    chart1 = _create_category_chart(filtered_expenses)
+    chart2 = _create_trend_chart(filtered_expenses, period)
+    chart3 = _create_pet_chart(filtered_expenses)
+    
+    return {
+        'view_mode': 'charts',
+        'period': period,
+        'stats': stats,
+        'chart1': chart1,
+        'chart2': chart2,
+        'chart3': chart3,
+        'no_data': not filtered_expenses.exists(),
+        'matplotlib_error': False,
+        'filtered_data_count': filtered_expenses.count(),
+        'all_data_count': expenses.count(),
+        'start_date': start_date,
+        'end_date': end_date,
+    }
+
 @login_required
 def analytics(request):
     """
     Страница аналитики с переключением между таблицами и графиками
     """
     # Получаем данные
-    if request.user.is_authenticated:
-        pets = Pet.objects.filter(owner=request.user)
-        expenses = Expense.objects.filter(pet__owner=request.user)
-    else:
-        pets = Pet.objects.all()
-        expenses = Expense.objects.all()
+    expenses = _get_filtered_expenses(request)
     
     if not expenses.exists():
         return render(request, 'pets/analytics.html', {
-            'pets': pets,
+            'pets': Pet.objects.filter(owner=request.user) if request.user.is_authenticated else Pet.objects.all(),
             'no_data': True,
             'matplotlib_error': not MATPLOTLIB_AVAILABLE
         })
     
     # Определяем режим отображения
     view_mode = request.GET.get('view', 'table')
-    period = request.GET.get('period', 'month')
     
-    # ==================== РЕЖИМ ГРАФИКОВ ====================
     if view_mode == 'charts':
-        if not MATPLOTLIB_AVAILABLE:
-            return render(request, 'pets/analytics.html', {
-                'pets': pets,
-                'no_data': False,
-                'view_mode': 'charts',
-                'matplotlib_error': True,
-                'period': period,
-                'stats': None,
-                'chart1': None,
-                'chart2': None,
-                'chart3': None
-            })
-        
-        # Определяем даты для фильтрации
-        today = timezone.now().date()
-        if period == 'week':
-            start_date = today - timedelta(days=7)
-        elif period == 'month':
-            start_date = today - timedelta(days=30)
-        elif period == 'year':
-            start_date = today - timedelta(days=365)
-        else:
-            start_date = today - timedelta(days=30)
-        
-        # Фильтруем расходы
-        filtered_expenses = expenses.filter(date__gte=start_date)
-        
-        # Если нет данных за период, показываем всё
-        if not filtered_expenses.exists():
-            filtered_expenses = expenses
-        
-        # Статистика
-        stats = {
-            'total_expenses': filtered_expenses.aggregate(Sum('amount'))['amount__sum'] or 0,
-            'average_expense': filtered_expenses.aggregate(Avg('amount'))['amount__avg'] or 0,
-            'expense_count': filtered_expenses.count(),
-        }
-        
-        # ГРАФИК 1: Круговая диаграмма по категориям
-        chart1 = None
-        try:
-            category_data = filtered_expenses.values('category__name').annotate(
-                total=Sum('amount')
-            ).order_by('-total')[:6]
-            
-            if category_data:
-                categories = []
-                amounts = []
-                
-                for item in category_data:
-                    cat_name = item['category__name'] or 'Без категории'
-                    if cat_name:
-                        categories.append(cat_name[:15])
-                        amounts.append(float(item['total']))
-                
-                if categories and amounts:
-                    fig, ax = plt.subplots(figsize=(8, 8))
-                    colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40']
-                    ax.pie(amounts, labels=categories, colors=colors[:len(categories)], 
-                          autopct='%1.1f%%', startangle=90)
-                    ax.set_title('Расходы по категориям', fontsize=14)
-                    ax.axis('equal')
-                    
-                    buf1 = io.BytesIO()
-                    fig.savefig(buf1, format='png', dpi=80, bbox_inches='tight')
-                    buf1.seek(0)
-                    chart1 = base64.b64encode(buf1.getvalue()).decode('utf-8')
-                    buf1.close()
-                    plt.close(fig)
-        except Exception as e:
-            print(f"Ошибка при построении графика 1: {e}")
-            chart1 = None
-        finally:
-            if 'fig' in locals():
-                plt.close(fig)
-        
-        # ГРАФИК 2: Линейный график по времени
-        chart2 = None
-        try:
-            # Группируем по дням или месяцам в зависимости от периода
-            if period == 'week':
-                date_data = filtered_expenses.annotate(
-                    day=TruncDate('date')
-                ).values('day').annotate(
-                    total=Sum('amount')
-                ).order_by('day')
-            else:
-                date_data = filtered_expenses.annotate(
-                    month=TruncMonth('date')
-                ).values('month').annotate(
-                    total=Sum('amount')
-                ).order_by('month')
-            
-            if date_data:
-                dates = []
-                amounts = []
-                
-                for item in date_data:
-                    if 'day' in item:
-                        dates.append(item['day'].strftime('%d.%m'))
-                    else:
-                        dates.append(item['month'].strftime('%b %Y'))
-                    amounts.append(float(item['total']))
-                
-                if len(dates) > 1:
-                    fig, ax = plt.subplots(figsize=(10, 5))
-                    ax.plot(dates, amounts, marker='o', linewidth=2, color='#36A2EB')
-                    ax.fill_between(dates, amounts, alpha=0.2, color='#36A2EB')
-                    ax.set_title('Динамика расходов', fontsize=14)
-                    ax.set_xlabel('Период')
-                    ax.set_ylabel('Сумма (руб)')
-                    ax.grid(True, alpha=0.3)
-                    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-                    plt.tight_layout()
-                    
-                    buf2 = io.BytesIO()
-                    fig.savefig(buf2, format='png', dpi=80)
-                    buf2.seek(0)
-                    chart2 = base64.b64encode(buf2.getvalue()).decode('utf-8')
-                    buf2.close()
-                    plt.close(fig)
-        except Exception as e:
-            print(f"Ошибка при построении графика 2: {e}")
-            chart2 = None
-        finally:
-            if 'fig' in locals():
-                plt.close(fig)
-        
-        # ГРАФИК 3: Столбчатая диаграмма по питомцам
-        chart3 = None
-        try:
-            pet_data = filtered_expenses.values('pet__name').annotate(
-                total=Sum('amount')
-            ).order_by('-total')[:5]
-            
-            if pet_data:
-                pet_names = []
-                pet_amounts = []
-                
-                for item in pet_data:
-                    name = item['pet__name'] or 'Без имени'
-                    if name:
-                        pet_names.append(name[:12])
-                        pet_amounts.append(float(item['total']))
-                
-                if pet_names and pet_amounts:
-                    fig, ax = plt.subplots(figsize=(10, 6))
-                    colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
-                    bars = ax.bar(pet_names, pet_amounts, color=colors[:len(pet_names)])
-                    ax.set_title('Расходы по питомцам', fontsize=14)
-                    ax.set_xlabel('Питомец')
-                    ax.set_ylabel('Сумма (руб)')
-                    ax.grid(axis='y', alpha=0.3)
-                    
-                    # Добавляем значения на столбцы
-                    for bar in bars:
-                        height = bar.get_height()
-                        ax.text(bar.get_x() + bar.get_width()/2., height,
-                               f'{height:,.0f}₽',
-                               ha='center', va='bottom')
-                    
-                    plt.tight_layout()
-                    
-                    buf3 = io.BytesIO()
-                    fig.savefig(buf3, format='png', dpi=80)
-                    buf3.seek(0)
-                    chart3 = base64.b64encode(buf3.getvalue()).decode('utf-8')
-                    buf3.close()
-                    plt.close(fig)
-        except Exception as e:
-            print(f"Ошибка при построении графика 3: {e}")
-            chart3 = None
-        finally:
-            if 'fig' in locals():
-                plt.close(fig)
-        
-        context = {
-            'pets': pets,
-            'view_mode': view_mode,
-            'period': period,
-            'stats': stats,
-            'chart1': chart1,
-            'chart2': chart2,
-            'chart3': chart3,
-            'no_data': not filtered_expenses.exists(),
-            'matplotlib_error': False,
-            'filtered_data_count': filtered_expenses.count(),
-            'all_data_count': expenses.count(),
-            'start_date': start_date,
-            'end_date': today,
-        }
-    
-    # ==================== РЕЖИМ ТАБЛИЦ ====================
+        context = analytics_charts(request, expenses)
     else:
-        # Общая статистика
-        total_stats = expenses.aggregate(
-            total=Sum('amount'),
-            avg=Avg('amount'),
-            count=Count('id'),
-            min=Min('amount'),
-            max=Max('amount')
-        )
-        
-        # Статистика по категориям
-        by_category = expenses.values(
-            'category__name', 'category__color'
-        ).annotate(
-            total=Sum('amount'),
-            count=Count('id'),
-            avg=Avg('amount')
-        ).order_by('-total')
-        
-        # По питомцам
-        by_pet = expenses.values(
-            'pet__name'
-        ).annotate(
-            total=Sum('amount'),
-            count=Count('id')
-        ).order_by('-total')
-        
-        # По месяцам
-        monthly_stats = expenses.annotate(
-            month=TruncMonth('date')
-        ).values('month').annotate(
-            total=Sum('amount'),
-            count=Count('id')
-        ).order_by('month')
-        
-        # Форматируем для шаблона
-        monthly_stats_formatted = []
-        for item in monthly_stats:
-            monthly_stats_formatted.append({
-                'month': item['month'].strftime('%Y-%m'),
-                'total': item['total'],
-                'count': item['count']
-            })
-        
-        # Сравнение с предыдущим месяцем
-        current_month_start = datetime.now().replace(day=1)
-        current_month_expenses = expenses.filter(
-            date__gte=current_month_start
-        ).aggregate(total=Sum('amount'))['total'] or 0
-        
-        prev_month_end = current_month_start - timedelta(days=1)
-        prev_month_start = prev_month_end.replace(day=1)
-        prev_month_expenses = expenses.filter(
-            date__gte=prev_month_start,
-            date__lte=prev_month_end
-        ).aggregate(total=Sum('amount'))['total'] or 0
-        
-        # Изменение в процентах
-        if prev_month_expenses > 0:
-            change_percent = ((current_month_expenses - prev_month_expenses) / prev_month_expenses) * 100
-        else:
-            change_percent = 100 if current_month_expenses > 0 else 0
-        
-        context = {
-            'pets': pets,
-            'view_mode': view_mode,
-            'total_stats': total_stats,
-            'by_category': by_category,
-            'by_pet': by_pet,
-            'monthly_stats': monthly_stats_formatted,
-            'current_month_expenses': current_month_expenses,
-            'prev_month_expenses': prev_month_expenses,
-            'change_percent': change_percent,
-            'expense_count': expenses.count(),
-            'pet_count': pets.count(),
-            'current_month': current_month_start.strftime('%Y-%m'),
-            'no_data': False,
-            'matplotlib_error': not MATPLOTLIB_AVAILABLE,
-        }
+        context = analytics_tables(request, expenses)
+    
+    context['pets'] = Pet.objects.filter(owner=request.user) if request.user.is_authenticated else Pet.objects.all()
     
     return render(request, 'pets/analytics.html', context)
 
 def export_expenses_csv(request):
     """Экспорт расходов в CSV"""
     
-    # ФИКС 1: Фильтруем по текущему пользователю (а не все подряд)
+    # Фильтруем по текущему пользователю
     if request.user.is_authenticated:
         expenses = Expense.objects.filter(created_by=request.user)
     else:
         # Для анонимных пользователей возвращаем пустой список
         expenses = Expense.objects.none()
     
-    # Или альтернативный вариант - если у Expense нет поля created_by:
-    # expenses = Expense.objects.filter(pet__owner=request.user)
-    
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="pet_expenses.csv"'
     
     writer = csv.writer(response)
-    # ФИКС 2: Убираем "Валюта" или фиксируем как "RUB"
     writer.writerow(['Дата', 'Питомец', 'Категория', 'Сумма (RUB)', 'Описание'])
     
     for expense in expenses:
-        # ФИКС 3: Проверяем наличие связанных объектов
         writer.writerow([
             expense.date.strftime('%Y-%m-%d') if expense.date else '',
             expense.pet.name if expense.pet else 'Не указан',
@@ -870,45 +856,40 @@ def global_search(request):
     return render(request, 'pets/global_search.html', results)
 
 def emergency_login(request):
-    """Тестовый вход для администратора"""
-    # Проверяем, что это тестовый режим (в продакшене не разрешаем)
+    """Тестовый вход для администратора (только в режиме DEBUG)"""
     if not settings.DEBUG:
         messages.error(request, "Тестовый вход доступен только в режиме отладки.")
         return redirect('pets:home')
     
-    # Пытаемся войти как admin/admin123
-    username = 'admin'
-    password = 'admin123'
+    # Используем безопасный подход без хардкода паролей
+    username = 'test_admin'
     
-    # Проверяем, существует ли пользователь admin
     try:
-        user = User.objects.get(username=username)
-    except User.DoesNotExist:
-        # Создаем тестового пользователя если не существует
-        user = User.objects.create_user(
+        # Пытаемся найти или создать тестового пользователя
+        user, created = User.objects.get_or_create(
             username=username,
-            password=password,
-            email='admin@example.com',
-            is_staff=True,
-            is_superuser=True
+            defaults={
+                'email': f'{username}@example.com',
+                'is_staff': True,
+                'is_superuser': True
+            }
         )
-        messages.info(request, 'Создан тестовый администратор (admin/admin123)')
-    
-    # Аутентифицируем пользователя
-    user = authenticate(username=username, password=password)
-    if user is not None:
+        
+        if created:
+            # Генерируем случайный пароль для нового пользователя
+            import secrets
+            password = secrets.token_urlsafe(12)
+            user.set_password(password)
+            user.save()
+            logger.info(f"Created test admin user with password: {password}")
+        
+        # Авторизуем пользователя
+        user.backend = 'django.contrib.auth.backends.ModelBackend'
         login(request, user)
         messages.success(request, f'Вы вошли как {user.username} (тестовый режим)')
-        return redirect('pets:home')
-    else:
-        # Если пароль неверный, устанавливаем правильный
-        user.set_password(password)
-        user.save()
-        user = authenticate(username=username, password=password)
-        if user:
-            login(request, user)
-            messages.success(request, f'Пароль сброшен. Вы вошли как {user.username}')
-            return redirect('pets:home')
-        else:
-            messages.error(request, 'Ошибка тестового входа')
-            return redirect('pets:login')
+        
+    except Exception as e:
+        logger.error(f"Error in emergency login: {e}")
+        messages.error(request, 'Ошибка тестового входа')
+    
+    return redirect('pets:home')
