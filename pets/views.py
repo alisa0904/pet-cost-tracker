@@ -22,6 +22,8 @@ from django.conf import settings
 import matplotlib.pyplot as plt
 from .models import Pet, Expense, ExpenseCategory
 from .forms import PetForm, ExpenseForm
+from django.http import HttpResponse
+import csv
 
 # Проверка доступности matplotlib для аналитики
 try:
@@ -735,24 +737,32 @@ def analytics(request):
 
 def export_expenses_csv(request):
     """Экспорт расходов в CSV"""
-    import csv
     
-    expenses = Expense.objects.all()
+    # ФИКС 1: Фильтруем по текущему пользователю (а не все подряд)
+    if request.user.is_authenticated:
+        expenses = Expense.objects.filter(created_by=request.user)
+    else:
+        # Для анонимных пользователей возвращаем пустой список
+        expenses = Expense.objects.none()
+    
+    # Или альтернативный вариант - если у Expense нет поля created_by:
+    # expenses = Expense.objects.filter(pet__owner=request.user)
     
     response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="expenses.csv"'
+    response['Content-Disposition'] = 'attachment; filename="pet_expenses.csv"'
     
     writer = csv.writer(response)
-    writer.writerow(['Дата', 'Питомец', 'Категория', 'Сумма', 'Валюта', 'Описание'])
+    # ФИКС 2: Убираем "Валюта" или фиксируем как "RUB"
+    writer.writerow(['Дата', 'Питомец', 'Категория', 'Сумма (RUB)', 'Описание'])
     
     for expense in expenses:
+        # ФИКС 3: Проверяем наличие связанных объектов
         writer.writerow([
-            expense.date,
-            expense.pet.name,
-            expense.category.name,
+            expense.date.strftime('%Y-%m-%d') if expense.date else '',
+            expense.pet.name if expense.pet else 'Не указан',
+            expense.category.name if expense.category else 'Без категории',
             expense.amount,
-            expense.currency,
-            expense.description
+            expense.description or ''
         ])
     
     return response

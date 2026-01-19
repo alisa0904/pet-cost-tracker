@@ -10,7 +10,7 @@ urlpatterns = [
     path('', RedirectView.as_view(pattern_name='pets:home', permanent=False)),
     
     # Все маршруты приложения pets доступны по префиксу /pets/
-    path('pets/', include('pets.urls')),
+    path('pets/', include('pets.urls', namespace='pets')),
     
     # Аутентификация
     path('accounts/login/', auth_views.LoginView.as_view(
